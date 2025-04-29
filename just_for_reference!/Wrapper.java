@@ -8,30 +8,41 @@ import pbi.executor.types.*;
 
 public class Wrapper extends Base {
   private static Map<String, Base> void_map = new HashMap<>();
+  private static Base[] void_regs = new Base[0];
 
   Main env;
-  public int id;
-  Map<Integer, Base[]> scope; // = new HashMap<Integer, Base[]>();
-  Base[] prevRegs;
+  RegLocs reg_locs;
 
-  public Wrapper(Main environment, int id, RegLocs env2) {
-  //Map<Integer, RegLocs> s, Base[] prevRegs) {
-    env = environment;
-    this.id = id;
-    scope = env2.scope;
-    this.prevRegs = env2.regs;
+  public Wrapper(Main env, int id) {
+    this.env = env;
+    reg_locs = new RegLocs(env, id, void_regs, new HashMap<Integer, Base[]>());
   }
-  @Override public Base __call__(Base[] args, Map<String, Base> dict) throws RuntimeError {
-    return env.method(id, scope, prevRegs, args, dict);
+
+  public Wrapper(RegLocs prev, int id) {
+    env = prev.env;
+    reg_locs = new RegLocs(env, id, prev.regs, prev.scope);
   }
-  @Override public Base __call__(Base... args) throws RuntimeError {
-    return env.method(id, scope, prevRegs, args, void_map);
-    //return __call__(args, new HashMap<String, Base>());
+
+  @Override public Base __call__(Base[] a_args, Map<String, Base> kw_args) throws RuntimeError {
+    reg_locs.argumentor(a_args, kw_args);
+    return env.method(reg_locs);
+  }
+  @Override public Base __call__(Base... a_args) throws RuntimeError {
+    reg_locs.argumentor(a_args, void_map);
+    return env.method(reg_locs);
+  }
+  public Base call() throws RuntimeError {
+    reg_locs.argumentor(void_regs, void_map);
+    return env.method(reg_locs);
+  }
+
+  public int id() {
+    return reg_locs.id;
   }
 
   @Override public Main __main() { return env; }
 
-  @Override public String __repr__() { return "<wrapper def#" + id + ">"; }
+  @Override public String __repr__() { return "<wrapper def#" + reg_locs.id + ">"; }
   static Type type = new Type(Wrapper.class, "wrapper");
   @Override public Type __type__() { return type; }
   @Override public pBoolean isdef() { return Main.True; }

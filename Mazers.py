@@ -1,8 +1,51 @@
 if True: # __name__ == "__main__":
   from executor import main, load_codes # пока нереализован доступный всем способ компиляции БЕЗ доступа к компилятору (облачные технологии)
   load_codes("Mazers.py")
-  main("mazers", False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
+  main(("mazers", "time-tests")[1], False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
   exit()
+
+###~~~### time-tests
+
+def time_test():
+  data = tuple((0, "5") for i in range(100000))
+  td_sum = td2_sum = count = 0
+  while True:
+    check = (lambda value: None,)
+    T = time()
+    for TypeV, value in data:
+      check[TypeV](value)
+    td = time() - T
+
+    check = (None,)
+    T = time()
+    for TypeV, value in data:
+      func = check[TypeV]
+      if func is not None: func(value)
+    td2 = time() - T
+
+    td_sum += td
+    td2_sum += td2
+    count += 1
+    res = td_sum / count, td2_sum / count
+    # print(td, td2) # 0.8 vs 0.04 (вызов пустой функции в 20 раз дороже, чем проверка на None)
+    """
+после ОЧЕНЬ серьёзной оптимизационной работы моего py-движка:
+  редизайн виртуального процессора с упором на уменьшения числа dalvik-операций;
+  регистры и scope-области выделяются теперь заранее;
+  в обработчике аргументов, регистры только очищаются через Arrays.fill(regs, null);
+  обработчик аргументов написан более осознанно и теперь менее требовательный;
+  в 1000 раз теперь понятнее, как В БУДУЩЕМ реализовать yield и gen_expr-механику
+    """
+    print(*res)    # 0.049 vs 0.0418 (x17 к скорости вызова пустой функции!!!)
+    # print(100000 / td, 100000 / td2)
+
+def time_test2():
+  while True:
+    T = time()
+    for i in range(1000000): pass
+    print(1000000 / (time() - T))
+
+Thread(time_test).start()
 
 ###~~~### mazers
 
@@ -49,8 +92,7 @@ class Blockerson:
     Blockerson.insts.append(self)
 
   def writeMark(self, mark):
-    # assert type(mark) is Mark # TODO: ввести поддержку assert_stmt
-    if type(mark) is not Mark: 1 / 0
+    assert type(mark) is Mark
     if mark != Mark0:
       self.marks.append([self.tell(), mark])
     self.write(b"\0\0\0\0")
@@ -129,7 +171,7 @@ def descExtractor(desc):
       while desc[pos + 1] == "[": pos += 1
       lock = 2
     else:
-      exit("descExtractorValueError: " + value)
+      raise Exception("descExtractorValueError: " + value)
     if lock == 1: types[-1] = desc[PosN2 : pos + 1]
     if lock > 0: lock -= 1
     pos += 1
@@ -175,7 +217,7 @@ class Pooler:
   def addProto(self, proto):
     try: self.Protos[proto]; return
     except KeyError: pass
-    if proto[0] != "(": exit("Начало Proto неправильное")
+    assert proto[0] == "(", "Начало Proto неправильное"
     types = descExtractor(proto)
     exType = proto.split(")", 1)[1]
     shorty = "L" if len(exType) > 1 else exType
@@ -217,8 +259,7 @@ class Pooler:
     def comp_proto(proto):
       full, shorty, desc, extype = proto
       L = extype.count("[")
-      # TODO! ввести звёзды в tuple maker
-      return (type_d[extype],) + tuple(type_d[type] for type in desc)
+      return (type_d[extype], *(type_d[type] for type in desc))
     def comp_field(field):
       full, Class, name, Type = field
       return type_d[Class], str_d[name], type_d[Type]
@@ -329,33 +370,32 @@ class Pooler:
   # вытягивает ВСЕ пул-ресурсы из класса
 
   def collector(self, classObj):
-    """
-    plug = lambda value: None
-    (plug, 
-    def EncodedValue(TypeV, value):
-      if TypeV == 23: Pool.addStr(value[1:-1])
-      elif TypeV == 24: Pool.addType(value)
-      elif TypeV == 25: Pool.addField(value)
-      elif TypeV == 26: Pool.addMethod(value)
-      elif TypeV == 27:
-        if not value.startswith(".enum "): exit("EncodedValue 27 с неправильным началом")
-        Pool.addField(value[6:])
-      elif TypeV == 28:
-        for TypeV, value in value: EncodedValue(TypeV, value)
-      elif TypeV == 29: CollectAnnot(value)
+    def collectAnnot(annot):
+      T, items = annot
+      addType(T)
+      for TypeV, name, value in items:
+        addStr(name)
+        encodedValue(TypeV, value)
 
-    def CollectAnnot(Annot):
-      Pool.addType(Annot[0])
-      for TypeV, Name, value in Annot[1]:
-        Pool.addStr(Name)
-        EncodedValue(TypeV, value)
-    """
-    assert AssertionError("meow!")
-    assert False
-    a = (1, 2, "cat!")
-    b = (3, 4, *a, 5)
-    print(b)
-    exit()
+    def disp_27(value):
+      assert value.startswith(".enum "), "EncodedValue 27 с неправильным началом"
+      addField(value[6:])
+    def disp_28(value):
+      for TypeV, value in value: encodedValue(TypeV, value)
+    dispatch = (
+      *(lambda value: None,) * 23, # 0 - 22
+      lambda value: addStr(value[1:-1]), # 23
+      lambda value: addType(value), # 24
+      lambda value: addField(value), # 25
+      lambda value: addMethod(value), # 26
+      disp_27, # 27
+      disp_28, # 28
+      collectAnnot, # 29
+      *(lambda value: None,) * 2, # 30 - 31
+    )
+
+    def encodedValue(TypeV, value):
+      dispatch[TypeV](value)
 
     addStr = self.addStr
     addType = self.addType
@@ -368,12 +408,17 @@ class Pooler:
     if superName is not None: addType(superName)
     self.addTypeList(interfaces)
     if sourceStr is not None: addStr(sourceStr)
-    # for annot in classAnnots: CollectAnnot(annot)
+    for annot in classAnnots: collectAnnot(annot)
 
     for group_n, name, accessFM, value, elements, codeObj, debug in allFM:
       is_method = group_n >= 2
 
       (addMethod if is_method else addField)(className + "->" + name)
+      if value is not None:
+        encodedValue(*value)
+      for element in elements: collectAnnot(element)
+      if codeObj is not None:
+        registers, ins, outs, insns, codeD, tries3 = codeObj
 
 
 
@@ -451,7 +496,7 @@ def DexWriter(filename, dex_classes):
         if delta < 0:
           print((Pool.method_arr if is_method else Pool.field_arr)[pred_id][0])
           print(name)
-          exit("Дельта не должна быть меньше нуля (ошибка сортировщика полей & методов)! delta = %s" % delta)
+          raise Exception("Дельта не должна быть меньше нуля (ошибка сортировщика полей & методов)! delta = %s" % delta)
         if is_method: res_append((delta, accessFM, 0)) # write_codes(name, codeObj, debug)))
         else: res_append((delta, accessFM))
         pred_id = nameId
