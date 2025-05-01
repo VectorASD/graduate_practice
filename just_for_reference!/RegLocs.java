@@ -1,13 +1,11 @@
 package pbi.executor;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import pbi.executor.exceptions.*;
 import pbi.executor.types.Base;
 import pbi.executor.types.Dict;
-import pbi.executor.types.List;
 import pbi.executor.types.pString;
 
 public class RegLocs {
@@ -19,6 +17,7 @@ public class RegLocs {
   public Base[] regs;
   public Map<Integer, Base[]> scope;
 
+  @SuppressWarnings("unchecked")
   public RegLocs(Main env, int id, Base[] prev_regs, Map<Integer, Base[]> prev_scope) {
     this.env = env;
     this.id = id;
@@ -46,7 +45,7 @@ public class RegLocs {
     star  = (int) args[2]; // -1 <-> None
     dstar = (int) args[3]; // -1 <-> None
     without_default = (int) args[4];
-    arg_links = (Map<String, Integer>) args[5];
+    arg_links = (Map<String, Integer>) args[5]; // причина применения @SuppressWarnings("unchecked")
   }
 
   int[] loc_args_0;
@@ -58,7 +57,6 @@ public class RegLocs {
 
   boolean used;
 
-  @SuppressWarnings("unchecked")
   void argumentor(Base[] a_args, Map<String, Base> kw_args) throws RuntimeError {
     if (used)
       Arrays.fill(regs, null);
