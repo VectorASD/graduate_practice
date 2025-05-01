@@ -1,8 +1,27 @@
 if True: # __name__ == "__main__":
   from executor import main, load_codes # пока нереализован доступный всем способ компиляции БЕЗ доступа к компилятору (облачные технологии)
   load_codes("Mazers.py")
-  main(("mazers", "time-tests")[1], False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
+  n = 1
+  main(("mazers", "time-tests", "optimizer-check")[n], False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
   exit()
+
+###~~~### optimizer-check
+
+"""
+def glob_func():
+  global abc
+  def abc(): return 25
+
+abc = None
+glob_func()
+print(abc())
+"""
+
+from double import DOUBLE
+from java.lang.Math import Math
+log = Math._mw_log(DOUBLE)
+LOG_2 = log(2)
+print(LOG_2)
 
 ###~~~### time-tests
 
@@ -27,9 +46,11 @@ def time_test():
     td2_sum += td2
     count += 1
     res = td_sum / count, td2_sum / count
+
     # print(td, td2) # 0.8 vs 0.04 (вызов пустой функции в 20 раз дороже, чем проверка на None)
+
     """
-после ОЧЕНЬ серьёзной оптимизационной работы моего py-движка:
+После ОЧЕНЬ серьёзной оптимизационной работы моего py-движка:
   редизайн виртуального процессора с упором на уменьшения числа dalvik-операций;
   регистры и scope-области выделяются теперь заранее;
   в обработчике аргументов, регистры только очищаются через Arrays.fill(regs, null);
@@ -37,6 +58,15 @@ def time_test():
   в 1000 раз теперь понятнее, как В БУДУЩЕМ реализовать yield и gen_expr-механику
     """
     print(*res)    # 0.049 vs 0.0418 (x17 к скорости вызова пустой функции!!!)
+
+    """
+После оптимизации лишних переходов регистров:
+  к сожалению, это ещё не идеальный вариант, т.к. для идеального, пришлось бы строить
+  полноценный граф управления программы;
+  теперь все константы выгружаются в регистры в самом начале каждой функции
+    """
+    print(*res)    # 0.0405 vs 0.0267 (x1.5 к скорости обычного выполнения)
+
     # print(100000 / td, 100000 / td2)
 
 def time_test2():

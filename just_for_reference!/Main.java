@@ -325,7 +325,7 @@ public class Main {
         case 'i': d = r_sint(bf); break; // int
         case 'f': d = r_bigint(bf); break; // int
         case 'v': d = r_var(bf); break;  // var
-        case 's': d = r_news(news, bf); break;  // news str
+        case 's': d = r_news_s(news, bf); break;  // news str
         case 'a': {
           int l = r_int(bf);
           int[] arr = new int[l];
@@ -377,7 +377,14 @@ public class Main {
       default: return None;
     }
   }
-  static Base r_news(Base[] news, ByteBuffer bf) {
+  static String r_news(Base[] news, ByteBuffer bf) {
+    int n = r_none(bf);
+    if (n == -1) return null;
+    try { return ((pString) news[n]).str; }
+    catch (ArrayIndexOutOfBoundsException e) {}
+    return new StringBuilder().appendCodePoint(n).toString();
+  }
+  static Base r_news_s(Base[] news, ByteBuffer bf) {
     int n = r_int(bf);
     try { return news[n]; }
     catch (ArrayIndexOutOfBoundsException e) {}
@@ -467,7 +474,7 @@ public class Main {
       "rd|rv|vr|r|rr|rr|rr|rr|rr|rr|" +  // 10 - 19
       "rr|rr|rr|rr|rr|rr|rr|rr|rr|rr|" + // 20 - 29
       "rr|rr|rr|rr|rr|r|rrr|ra|rrs|r|" + // 30 - 39
-      "rrr|rsr|vr||d|rb|c|r|v|r|" +      // 40 - 49
+      "rrr|rsr|vr||r|rb|c|r|v|r|" +      // 40 - 49
       "r|r|r|r|rr|rd|rr|r|rr|vs|" +      // 50 - 59
       "rr|rr|rr|rr|rrr|rrri|vrr|vri|re|rr|" + // 60 - 69
       "rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 70 - 79
@@ -477,21 +484,18 @@ public class Main {
 
     for (int id = 0; id < defs_n; id++) {
       //System.out.print(id + " | " + bf.position());
-      int l_count = r_int(bf);
-      int l = r_int(bf);
-      int r_count = r_int(bf);
+      int namez = r_int(bf);
+      int rln_count = r_int(bf);
+      int loc_args = r_int(bf);
 
-      String names[] = new String[l];
-      try {
-        for (int j = 0; j < l; j++)
-          names[j] = r_news(news, bf).__str().str;
-      } catch (TypeError e) { e.printStackTrace(); }
+      String names[] = new String[namez];
+      for (int j = 0; j < namez; j++)
+        names[j] = r_news(news, bf);
 
-      l = r_int(bf);
-      int[] loc_args_0 = new int[l];
-      int[] loc_args_1 = new int[l];
+      int[] loc_args_0 = new int[loc_args];
+      int[] loc_args_1 = new int[loc_args];
       int without_default = 0, value;
-      for (int j = 0; j < l; j++) {
+      for (int j = 0; j < loc_args; j++) {
         loc_args_0[j] = r_int(bf);
         loc_args_1[j] = value = r_none(bf);
         if (value == -1) without_default++;
@@ -500,10 +504,10 @@ public class Main {
       int dstar = r_none(bf);
 
       //System.out.println(" .. " + bf.position());
-      l = r_int(bf);
-      int[] codes = new int[l];
-      Object[] code_data = new Object[l];
-      for (int line = 0; line < l; line++) {
+      int count = r_int(bf);
+      int[] codes = new int[count];
+      Object[] code_data = new Object[count];
+      for (int line = 0; line < count; line++) {
         int code = bf.get() & 255;
         //System.out.println("  " + code + " " + packs[code] + " | " + bf.position());
         codes[line] = code;
@@ -511,8 +515,8 @@ public class Main {
       }
 
       Map<String, Integer> arg_links = new HashMap<>();
-      l = r_int(bf);
-      for (int j = 0; j < l; j++) {
+      count = r_int(bf);
+      for (int j = 0; j < count; j++) {
         int key = r_int(bf);
         arg_links.put(String.valueOf(key), r_int(bf));
       }
@@ -523,9 +527,9 @@ public class Main {
         without_default, arg_links
       };
 
-      l = r_int(bf);
-      Object[] tries = new Object[l];
-      for (int trie = 0; trie < l; trie++) {
+      count = r_int(bf);
+      Object[] tries = new Object[count];
+      for (int trie = 0; trie < count; trie++) {
         int a = r_int(bf);
         int b = r_int(bf);
         int ts_n = r_int(bf);
@@ -536,13 +540,12 @@ public class Main {
       }
 
       defs[id] = new Object[] {
-        l_count,   // 0   in RegLocs
+        rln_count, // 0   in RegLocs
         names,     // 1   here
-        r_count,   // 2   in RegLocs
-        args,      // 3   in RegLocs
-        codes,     // 4   here
-        code_data, // 5   here
-        tries      // 6   here
+        args,      // 2   in RegLocs
+        codes,     // 3   here
+        code_data, // 4   here
+        tries      // 5   here
       };
     }
 
@@ -672,7 +675,7 @@ public class Main {
     Base obj;
     switch (n & 7) {
       case 0: obj = env.regs[n >> 3]; break;
-      case 1: obj = env.locs[n >> 3]; break;
+      // case 1: obj = env.locs[n >> 3]; break;
       case 2: obj = globals[n >> 3]; break;
       case 3: obj = builtins[n >> 3]; break;
       default: obj = env.scope.get((n & 0xffff) >> 3)[n >> 16];
@@ -693,18 +696,10 @@ public class Main {
     if (obj == null) throw new NameError("name 'regs:" + n + "' is not defined");
     return obj;
   }
-  Base get_const(Base[] regs, int num) throws NameError {
-    if ((num & 1) == 0) {
-      Base obj = regs[num >> 1];
-      if (obj == null) throw new NameError("name 'regs:" + (num >> 1) + "' is not defined");
-      return obj;
-    }
-    return consts[num >> 1];
-  }
   void set_var(RegLocs env, int n, Base obj) {
     switch (n & 7) {
       case 0: env.regs[n >> 3] = obj; break;
-      case 1: env.locs[n >> 3] = obj; break;
+      // case 1: env.locs[n >> 3] = obj; break;
       case 2: globals[n >> 3] = obj; break;
       case 3: builtins[n >> 3] = obj; break;
       default: env.scope.get((n & 0xffff) >> 3)[n >> 16] = obj;
@@ -725,12 +720,11 @@ public class Main {
     Object[] state = env.state;
 
     String[] names = (String[]) state[1];
-    int[] codes = (int[]) state[4];
-    Object[] code_data = (Object[]) state[5];
-    Object[] tries = (Object[]) state[6];
+    int[] codes = (int[]) state[3];
+    Object[] code_data = (Object[]) state[4];
+    Object[] tries = (Object[]) state[5];
 
     Base[] regs = env.regs;
-    Base[] locs = env.locs;
     Map<Integer, Base[]> scope = env.scope;
 
     int pos = 0;
@@ -803,7 +797,7 @@ public class Main {
           continue loop;
         case 10: // константу в регистр
           idata = (int[]) code_data[pos];
-          regs[idata[0]] = get_const(regs, idata[1]);
+          regs[idata[0]] = consts[idata[1]];
           break;
         case 11: // переменную в регистр
           idata = (int[]) code_data[pos];
@@ -946,13 +940,13 @@ public class Main {
           data = (Object[]) code_data[pos];
           regs[(int) data[0]] = get_reg(regs, data[1]).__getattr__((Base) data[2]);
           break;
-        case 39: // v%0 = [v%0]     makelist
+        case 39: { // v%0 = [v%0]     makelist
           idata = (int[]) code_data[pos];
           reg = idata[0];
           ArrayList<Base> list = new ArrayList<>();
           list.add(get_reg(regs, reg));
           regs[reg] = new List(list);
-          break;
+          break; }
         case 40: // v%0[v%1] = v%2
           idata = (int[]) code_data[pos];
           get_reg(regs, idata[0]).__setitem__(get_reg(regs, idata[1]), get_reg(regs, idata[2]));
@@ -967,9 +961,9 @@ public class Main {
           break;
         case 43: // return
           return None;
-        case 44: // return c%0
+        case 44: // return v%0
           idata = (int[]) code_data[pos];
-          return get_const(regs, idata[0]);
+          return get_reg(regs, idata[0]);
         case 45: { // v%0 = tuple(v%1_args)
           data = (Object[]) code_data[pos];
           Object[] arr = (Object[]) data[1];
@@ -1007,8 +1001,11 @@ public class Main {
           Base[] args = new Base[vars.length];
           for (int i = 0; i < vars.length; i++) args[i] = get_var(env, vars[i]);
           Map<String, Base> attrs = new HashMap<>();
-          int l_count = locs.length;
-          for (int i = 0; i < l_count; i++) attrs.put(names[i], locs[i]);
+          int count = names.length;
+          for (int i = 0; i < count; i++) {
+            String name = names[i];
+            if (name != null) attrs.put(name, regs[i]);
+          }
           return new Type(args, attrs); }
         case 47: // v%0 = dict()
           idata = (int[]) code_data[pos];
@@ -1048,7 +1045,7 @@ public class Main {
           break;
         case 55: { // if v%0.__exit__(c%1, c%1.args, None): raise c%s
           idata = (int[]) code_data[pos];
-          Base err = get_const(regs, idata[1]);
+          Base err = consts[idata[1]];
           boolean is_err = err instanceof PyException;
           Base args2 = is_err ? ((PyException) err).args : None;
           boolean alarm = !get_reg(regs, idata[0]).__exit__(err, args2, None).__bool__().R;
@@ -1078,12 +1075,11 @@ public class Main {
           regs[idata[0]] = obj = regs[idata[1]];
           if (obj == null) throw new NameError("name 'regs:" + idata[1] + "' is not defined");
           break;
-        case 61: // v%0 = local %1
+       /* case 61: // v%0 = local %1
           idata = (int[]) code_data[pos];
-          obj = locs[idata[1]];
+          regs[idata[0]] = obj = locs[idata[1]];
           if (obj == null) throw new NameError("name 'locs:" + idata[1] + "' is not defined");
-          regs[idata[0]] = obj;
-          break;
+          break;*/
         case 62: // v%0 = global %1
           idata = (int[]) code_data[pos];
           obj = globals[idata[1]];
@@ -1165,10 +1161,162 @@ public class Main {
           regs[reg] = get_reg(regs, reg).__call__(args3, dict);
           last_method = id;
           break; }
+
         case 69: // v%0 = v%1.__iter__()   (3)
           idata = (int[]) code_data[pos];
           regs[idata[0]] = get_reg(regs, idata[1]).__iter__();
           break;
+        case 70: // +=   (14)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__add__(get_reg(regs, idata[2]));
+          break;
+        case 71: // -=   (15)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__sub__(get_reg(regs, idata[2]));
+          break;
+        case 72: // *=   (16)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__mul__(get_reg(regs, idata[2]));
+          break;
+        case 73: // @=   (17)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__matmul__(get_reg(regs, idata[2]));
+          break;
+        case 74: // /=   (18)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__truediv__(get_reg(regs, idata[2]));
+          break;
+        case 75: // %=   (19)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__mod__(get_reg(regs, idata[2]));
+          break;
+        case 76: // &=   (20)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__and__(get_reg(regs, idata[2]));
+          break;
+        case 77: // |=   (21)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__or__(get_reg(regs, idata[2]));
+          break;
+        case 78: // ^=   (22)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__xor__(get_reg(regs, idata[2]));
+          break;
+        case 79: // <<=   (23)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__lshift__(get_reg(regs, idata[2]));
+          break;
+        case 80: // >>=   (24)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__rshift__(get_reg(regs, idata[2]));
+          break;
+        case 81: // **=   (25)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__pow__(get_reg(regs, idata[2]));
+          break;
+        case 82: // //=   (26)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__floordiv__(get_reg(regs, idata[2]));
+          break;
+        case 83: // <   (27)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__lt(get_reg(regs, idata[2]));
+          break;
+        case 84: // >   (28)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__gt(get_reg(regs, idata[2]));
+          break;
+        case 85: // ==   (29)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__eq(get_reg(regs, idata[2]));
+          break;
+        case 86: // >=   (30)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__ge(get_reg(regs, idata[2]));
+          break;
+        case 87: // <=   (31)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__le(get_reg(regs, idata[2]));
+          break;
+        case 88: // !=   (32)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__ne(get_reg(regs, idata[2]));
+          break;
+        case 89: // in   (33)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[2]).__contains__(get_reg(regs, idata[1]));
+          break;
+        case 90: // is   (34)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]) == (Base) get_reg(regs, idata[2]) ? True : False;
+          break;
+        case 91: // v%0 = not v%1   (35)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__bool() ? False : True;
+          break;
+
+        case 92: { // v%0 = v%1(args)   (37)
+          data = (Object[]) code_data[pos];
+          int[] arr = (int[]) data[2];
+          int arr_L = arr.length;
+          Base[] arr2 = new Base[arr_L];
+          for (int i = 0; i < arr_L; i++) arr2[i] = get_reg(regs, arr[i]);
+          regs[(int) data[0]] = get_reg(regs, (int) data[1]).__call__(arr2, new HashMap<String, Base>());
+          last_method = id;
+          break; }
+        case 93: { // v%0 = [v%1]     makelist   (39)
+          idata = (int[]) code_data[pos];
+          ArrayList<Base> list = new ArrayList<>();
+          list.add(get_reg(regs, idata[1]));
+          regs[idata[0]] = new List(list);
+          break; }
+        case 94: // v%0 = +v%1   (51)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__pos__();
+          break;
+        case 95: // v%0 = -v%1   (52)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__neg__();
+          break;
+        case 96: // v%0 = ~v%1   (53)
+          idata = (int[]) code_data[pos];
+          regs[idata[0]] = get_reg(regs, idata[1]).__invert__();
+          break;
+        case 97: { // v%0 = v%1(args)   args with stars   (68)
+          data = (Object[]) code_data[pos];
+          // printObj("args97:", line);
+          int[][] args = (int[][]) data[2];
+          int arr_L = args.length;
+          ArrayList<Base> args2 = new ArrayList<>();
+          Map<String, Base> dict = new HashMap<>();
+          for (int i = 0; i < arr_L; i++) {
+            int[] row = args[i];
+            int type = row[0];
+            Base item = get_reg(regs, row[1]);
+            switch (type) {
+              case 0: args2.add(item); break;
+              case 1: // *
+                for (Base item2 : item) args2.add(item2);
+                break;
+              case 2: // **
+                Map<Base, Base> dict2 = item.__dict().get_dict();
+                for (Map.Entry<Base, Base> kv : dict2.entrySet()) {
+                  Base key = kv.getKey();
+                  if (!(key instanceof pString)) throw new TypeError("keywords must be strings");
+                  dict.put(((pString) key).str, kv.getValue());
+                }
+                break;
+              default: // anc
+                dict.put(String.valueOf(type - 3), item);
+                break;
+            }
+          }
+          Base[] args3 = new Base[args2.size()];
+          args2.toArray(args3);
+          regs[(int) data[0]] = get_reg(regs, (int) data[1]).__call__(args3, dict);
+          last_method = id;
+          break; }
+
         default:
           throw new TypeError("• code_" + codes[pos] + " не реализован!");
         }

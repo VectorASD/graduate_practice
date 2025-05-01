@@ -16,7 +16,7 @@ public class RegLocs {
   public Object[] state;
   public Base[] prev_regs;
 
-  public Base[] regs, locs;
+  public Base[] regs;
   public Map<Integer, Base[]> scope;
 
   public RegLocs(Main env, int id, Base[] prev_regs, Map<Integer, Base[]> prev_scope) {
@@ -25,21 +25,19 @@ public class RegLocs {
     state = (Object[]) env.defs[id];
     this.prev_regs = prev_regs;
 
-    int l_count = (int) state[0];
-    int r_count = (int) state[2];
-    Object[] args = (Object[]) state[3];
+    int rln_count = (int) state[0];
+    Object[] args = (Object[]) state[2];
 
 
 
-    regs = new Base[r_count];
-    locs = new Base[l_count];
+    regs = new Base[rln_count];
+    scope = new HashMap<Integer, Base[]>(prev_scope);
+    scope.put(id, regs);
+
     //Arrays.fill(regs, Main.Void);
     //Arrays.fill(locs, Main.Void);
     /* for (int i = 0; i < r_count; i++) regs[i] = Main.Void;
     for (int i = 0; i < ln_count; i++) locs[i] = Main.Void;*/
-
-    scope = new HashMap<Integer, Base[]>(prev_scope);
-    scope.put(id, locs);
 
 
 
@@ -62,10 +60,9 @@ public class RegLocs {
 
   @SuppressWarnings("unchecked")
   void argumentor(Base[] a_args, Map<String, Base> kw_args) throws RuntimeError {
-    if (used) {
+    if (used)
       Arrays.fill(regs, null);
-      Arrays.fill(locs, null);
-    } else used = true;
+    else used = true;
 
     int recv_args = a_args.length;
 
@@ -75,12 +72,17 @@ public class RegLocs {
     }
 
     int args_count = loc_args_0.length;
+    if (star == -1 && recv_args > args_count)
+      throw new TypeError("#" + id + "() takes " + args_count + " positional arguments but " + recv_args + " were given");
+
+    // TODO: не обрабатывается star
+
     int i;
     for (i = 0; i < recv_args; i++)
-      locs[loc_args_0[i]] = a_args[i];
+      regs[loc_args_0[i]] = a_args[i];
 
     while (i < args_count) {
-      locs[loc_args_0[i]] = prev_regs[loc_args_1[i]];
+      regs[loc_args_0[i]] = prev_regs[loc_args_1[i]];
       i++;
     }
 
@@ -103,7 +105,7 @@ public class RegLocs {
     } */
 
     if (kw_args.size() == 0) {
-      if (dstar != -1) locs[dstar] = new Dict();
+      if (dstar != -1) regs[dstar] = new Dict();
       return;
     }
 
@@ -135,14 +137,14 @@ public class RegLocs {
     Map<Base, Base> dstar_data;
     if (dstar != -1) {
       dstar_data = new HashMap<>();
-      locs[dstar] = new Dict(dstar_data);
+      regs[dstar] = new Dict(dstar_data);
 
       for (Map.Entry<String, Base> entry : kw_args.entrySet()) {
         String k = entry.getKey();
         Base v = entry.getValue();
         Object reg = arg_links.get(k);
         if (reg == null) dstar_data.put(new pString(k), v);
-        else locs[(int) reg] = v;
+        else regs[(int) reg] = v;
       }
     } else {
       dstar_data = null;
@@ -152,7 +154,7 @@ public class RegLocs {
         Base v = entry.getValue();
         Object reg = arg_links.get(k);
         if (reg == null) throw new TypeError("#" + id + "() got an unexpected keyword argument " + new pString(k).__repr__());
-        locs[(int) reg] = v;
+        regs[(int) reg] = v;
       }
     }
 
@@ -170,7 +172,7 @@ public class RegLocs {
       Base value = entry.getValue();
       Object reg = arg_links.get(pkey.str);
       if (reg != null)
-        locs[(int) reg] = value;
+        regs[(int) reg] = value;
       else if (dstar_data != null)
         dstar_data.put(pkey, value);
       else throw new TypeError("#" + id + "() got an unexpected keyword argument " + pkey.__repr__());
