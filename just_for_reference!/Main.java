@@ -90,6 +90,9 @@ public class Main {
   private static void _print2(Object obj) {
     Meaterson.print2(obj);
   }
+  public static void clear() {
+    Meaterson.clearConsole();
+  }
 
   public static void print(Object str) {
     Object obj = str instanceof Double ? new pFloat((double) str).__str__() : str;
@@ -315,7 +318,6 @@ public class Main {
           if (i < 3) idata[i][pos] = num;
           else i_arr[pos] = new int[] { num };
           break;
-        // case 'f': d = r_bigint(bf); break; // int
         case 's': // news str
           bdata[pos] = r_news_s(news, bf);
           break;
@@ -330,12 +332,6 @@ public class Main {
           int[] arr = i_arr[pos] = new int[l];
           for (int j = 0; j < l; j++)
             arr[j] = r_sint(bf);
-          break; }
-        case 'c': {
-          int l = r_int(bf);
-          int[] arr = i_arr[pos] = new int[l];
-          for (int j = 0; j < l; j++)
-            arr[j] = r_var(bf);
           break; }
         case 'e': {
           int l = r_int(bf);
@@ -394,8 +390,8 @@ public class Main {
 
     int heap_len = arr.length;
     byte[] arr2 = new byte[heap_len];
-    int[] pos = {0};
-    heap(0, arr, arr2, pos);
+    int[] zero_arr = {0};
+    heap(0, arr, arr2, zero_arr);
 
     double T2 = Functions.time();
     Main.print("heap:", T2 - T1);
@@ -441,14 +437,16 @@ public class Main {
     }
     //printObj("consts: ", consts, "\n");
 
-    int L = pool_arr.length, pos2 = L;
-    Base[] news = new Base[L + news_n];
+    int L = pool_arr.length;
+    news_n += L;
+    Base[] news = new Base[news_n];
     for (int i = 0; i < L; i++) {
       String s = pool_arr[i];
       if (s.startsWith("$attr$")) s = s.substring(6);
       news[i] = new pString(s);
     }
-    for (int i = 0; i < news_n; i++) news[pos2++] = r_str(bf);
+    for (int i = L; i < news_n; i++)
+      news[i] = r_str(bf);
     //printObj("news: ", news, " ", news.length, "\n");
 
     // System.out.println("g: " + g_count + " b: " + b_count + " defs: " + defs_n);
@@ -459,12 +457,12 @@ public class Main {
       "rd|rv|vr|r|rr|rr|rr|rr|rr|rr|" +  // 10 - 19
       "rr|rr|rr|rr|rr|rr|rr|rr|rr|rr|" + // 20 - 29
       "rr|rr|rr|rr|rr|r|rrr|ra|rrs|r|" + // 30 - 39
-      "rrr|rsr|vr||r|rb|c|r|v|r|" +      // 40 - 49
+      "rrr|rsr|vr||r|rb|a|r|v|r|" +      // 40 - 49
       "r|r|r|r|rr|rd|rr|r|rr|vs|" +      // 50 - 59
       "rr|rr|rr|rr|rrr|rrri|vrr|vri|re|rr|" + // 60 - 69
-      "rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 70 - 79
+       "rr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 70 - 79
       "rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 80 - 89
-      "rrr|rr|rra|rr|rr|rr|rr|rre" // 90 - 97
+      "rrr|rrr|rr|rra|rr|rr|rr|rr|rre" // 90 - 98
     ).split("\\|");
 
     for (int id = 0; id < defs_n; id++) {
@@ -489,20 +487,20 @@ public class Main {
       int dstar = r_none(bf);
 
       //System.out.println(" .. " + bf.position());
-      int count = r_int(bf);
+      L = r_int(bf);
 
-      int[] codes = new int[count];
+      int[] codes = new int[L];
 
-      int[] i0data = new int[count];
-      int[] i1data = new int[count];
-      int[] i2data = new int[count];
+      int[] i0data = new int[L];
+      int[] i1data = new int[L];
+      int[] i2data = new int[L];
 
       int[][] idata = new int[][] { i0data, i1data, i2data };
-      Base[]  bdata = new Base[count];
-      int[][]   i_arr = new int[count][];
-      int[][][] i_mat = new int[count][][];
+      Base[]  bdata = new Base[L];
+      int[][]   i_arr = new int[L][];
+      int[][][] i_mat = new int[L][][];
 
-      for (int line = 0; line < count; line++) {
+      for (int line = 0; line < L; line++) {
         int code = bf.get() & 255;
         //System.out.println("  " + code + " " + packs[code] + " | " + bf.position());
         codes[line] = code;
@@ -510,8 +508,8 @@ public class Main {
       }
 
       Map<String, Integer> arg_links = new HashMap<>();
-      count = r_int(bf);
-      for (int j = 0; j < count; j++) {
+      int links = r_int(bf);
+      for (int j = 0; j < links; j++) {
         int key = r_int(bf);
         arg_links.put(String.valueOf(key), r_int(bf));
       }
@@ -522,16 +520,28 @@ public class Main {
         without_default, arg_links
       };
 
-      count = r_int(bf);
-      Object[] tries = new Object[count];
+      int count = r_int(bf);
+      int tries_ts[][][] = null;
+      int tries_to[]     = null;
+
+      if (count > 0) {
+        tries_ts = new int[L][][];
+        tries_to = new int[L];
+        Arrays.fill(tries_to, -1);
+      }
+
       for (int trie = 0; trie < count; trie++) {
         int a = r_int(bf);
         int b = r_int(bf);
         int ts_n = r_int(bf);
-        int[][] ts = new int[ts_n][2];
-        for (int j = 0; j < ts_n; j++) ts[j] = new int[] { r_var(bf), r_int(bf) };
+        int ts[][] = new int[ts_n][2];
+        for (int j = 0; j < ts_n; j++) ts[j] = new int[] { r_int(bf), r_int(bf) };
         int to = r_int(bf) - 1;
-        tries[trie] = new Object[] { a, b, ts, to };
+
+        for (int pos = a; pos < b; pos++) {
+          tries_ts[pos] = ts;
+          tries_to[pos] = to;
+        }
       }
 
       defs[id] = new Object[] {
@@ -539,11 +549,12 @@ public class Main {
         names,     // 1   here
         args,      // 2   in RegLocs
         codes,     // 3   here
-        tries,     // 4   here
+        tries_ts,  // 4   here
         idata,     // 5   here
         bdata,     // 6   here
         i_arr,     // 7   here
         i_mat,     // 8   here
+        tries_to,  // 9   here
       };
     }
 
@@ -567,6 +578,7 @@ public class Main {
   public static pBoolean False = new pBoolean(false);
   public static NotImplementedType NotImpl = new NotImplementedType();
   public static EllipsisType Ellipsis = new EllipsisType();
+  public static StopIteration StopIteration = new StopIteration();
 
   static Base FuT = Functions.type;
   static Base FuI = Functions.inst;
@@ -663,6 +675,7 @@ public class Main {
     PyRecursionError.type,  // RecursionError
     Ellipsis,
     PyAssertionError.type,   // AssertionError
+    FuT.getattr("clear", FuI),
   };
   static String[] pool_arr = MainPoolArr.pool_arr;
 
@@ -670,7 +683,7 @@ public class Main {
 
 
 
-  Base get_var(RegLocs env, int n) throws NameError {
+  /* ЕЕЕЕЕ!!! Base get_var(RegLocs env, int n) throws NameError {
     Base obj;
     switch (n & 7) {
       case 0: obj = env.regs[n >> 3]; break;
@@ -684,7 +697,7 @@ public class Main {
       throw new NameError("name '" + names[n & 7] + ":" + (n >> 3) + "' is not defined");
     }
     return obj;
-  }
+  } */
   void set_var(RegLocs env, int n, Base obj) {
     switch (n & 7) {
       case 0: env.regs[n >> 3] = obj; break;
@@ -712,7 +725,8 @@ public class Main {
 
     String[] names = (String[]) state[1];
     int[] codes = (int[]) state[3];
-    Object[] tries = (Object[]) state[4];
+    int tries_ts[][][] = (int[][][]) state[4];
+    int tries_to[]     = (int[]) state[9];
 
     Base[] regs = env.regs;
     Map<Integer, Base[]> scope = env.scope;
@@ -756,8 +770,8 @@ public class Main {
           break;
         case 4: // try: v%0 = v%1.__next__()\nexcept StopIteration: goto %2
           reg = i1data[pos];
-          obj = regs[reg].__next__();
-          if (obj == null) {
+          try { obj = regs[reg].__next__(); }
+          catch (StopIteration e) {
             pos += i2data[pos];
             continue loop;
           }
@@ -796,8 +810,9 @@ public class Main {
           regs[i0data[pos]] = consts[i1data[pos]];
           break;
         case 11: // переменную в регистр
-          regs[i0data[pos]] = get_var(env, i1data[pos]);
-          break;
+          throw new Exception("11 недопустим");
+          // regs[i0data[pos]] = get_var(env, i1data[pos]);
+          // break;
         case 12: // регистр в переменную
           reg = i1data[pos];
           set_var(env, i0data[pos], regs[reg]);
@@ -1019,17 +1034,15 @@ public class Main {
           }
           regs[i0data[pos]] = new Tuple(data1);
           break; }
-        case 46: { // return type(id, (%0_args), locals())
-          int[] vars = i_arr[pos];
-          Base[] args = new Base[vars.length];
-          for (int i = 0; i < vars.length; i++) args[i] = get_var(env, vars[i]);
+        case 46: { // return type(id, (v%0_args), locals())
           Map<String, Base> attrs = new HashMap<>();
           int count = names.length;
           for (int i = 0; i < count; i++) {
             String name = names[i];
             if (name != null) attrs.put(name, regs[i]);
           }
-          return new Type(args, attrs); }
+          return new Type(regs, i_arr[pos], attrs); // теперь самостоятельно генерирует NameError в случае необходимости
+        }
         case 47: // v%0 = dict()
           regs[i0data[pos]] = new Dict();
           break;
@@ -1111,8 +1124,8 @@ public class Main {
           break;
         case 65: // try: v%0 (test tuple & size %1) = v%2.__next__()\nexcept StopIteration: goto %3
           reg = i2data[pos];
-          obj = regs[reg].__next__();
-          if (obj == null) {
+          try { obj = regs[reg].__next__(); }
+          catch (StopIteration e) {
             pos += i_arr[pos][0];
             continue loop;
           }
@@ -1129,8 +1142,8 @@ public class Main {
           break;
         case 67: // try: %0 = v%1.__next__()\nexcept StopIteration: goto %2
           reg = i1data[pos];
-          obj = regs[reg].__next__();
-          if (obj == null) {
+          try { obj = regs[reg].__next__(); }
+          catch (StopIteration e) {
             pos += i2data[pos];
             continue loop;
           }
@@ -1176,138 +1189,142 @@ public class Main {
           reg = i1data[pos];
           regs[i0data[pos]] = regs[reg].__iter__();
           break;
-        case 70: // +=   (14)
+        case 70: // v%0 = tuple(v%1) (tuplemaker)   (13)
+          reg = i1data[pos];
+          regs[i0data[pos]] = new Tuple(regs[reg]);
+          break;
+        case 71: // +=   (14)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__add__(regs[reg]);
           break;
-        case 71: // -=   (15)
+        case 72: // -=   (15)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__sub__(regs[reg]);
           break;
-        case 72: // *=   (16)
+        case 73: // *=   (16)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__mul__(regs[reg]);
           break;
-        case 73: // @=   (17)
+        case 74: // @=   (17)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__matmul__(regs[reg]);
           break;
-        case 74: // /=   (18)
+        case 75: // /=   (18)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__truediv__(regs[reg]);
           break;
-        case 75: // %=   (19)
+        case 76: // %=   (19)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__mod__(regs[reg]);
           break;
-        case 76: // &=   (20)
+        case 77: // &=   (20)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__and__(regs[reg]);
           break;
-        case 77: // |=   (21)
+        case 78: // |=   (21)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__or__(regs[reg]);
           break;
-        case 78: // ^=   (22)
+        case 79: // ^=   (22)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__xor__(regs[reg]);
           break;
-        case 79: // <<=   (23)
+        case 80: // <<=   (23)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__lshift__(regs[reg]);
           break;
-        case 80: // >>=   (24)
+        case 81: // >>=   (24)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__rshift__(regs[reg]);
           break;
-        case 81: // **=   (25)
+        case 82: // **=   (25)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__pow__(regs[reg]);
           break;
-        case 82: // //=   (26)
+        case 83: // //=   (26)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__floordiv__(regs[reg]);
           break;
-        case 83: // <   (27)
+        case 84: // <   (27)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__lt(regs[reg]);
           break;
-        case 84: // >   (28)
+        case 85: // >   (28)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__gt(regs[reg]);
           break;
-        case 85: // ==   (29)
+        case 86: // ==   (29)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__eq(regs[reg]);
           break;
-        case 86: // >=   (30)
+        case 87: // >=   (30)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__ge(regs[reg]);
           break;
-        case 87: // <=   (31)
+        case 88: // <=   (31)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__le(regs[reg]);
           break;
-        case 88: // !=   (32)
+        case 89: // !=   (32)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj.__ne(regs[reg]);
           break;
-        case 89: // in   (33)
+        case 90: // in   (33)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = (regs[reg]).__contains__(obj);
           break;
-        case 90: // is   (34)
+        case 91: // is   (34)
           reg = i1data[pos];
           obj = regs[reg];
           reg = i2data[pos];
           regs[i0data[pos]] = obj == regs[reg] ? _true : _false;
           break;
-        case 91: // v%0 = not v%1   (35)
+        case 92: // v%0 = not v%1   (35)
           reg = i1data[pos];
           regs[i0data[pos]] = regs[reg].__bool() ? _false : _true;
           break;
 
-        case 92: { // v%0 = v%1(args)   (37)
+        case 93: { // v%0 = v%1(args)   (37)
           int[] arr = i_arr[pos];
           int arr_L = arr.length;
           Base[] arr2 = new Base[arr_L];
@@ -1319,25 +1336,25 @@ public class Main {
           regs[i0data[pos]] = regs[reg].__call__(arr2, void_hash_map);
           last_method = id;
           break; }
-        case 93: { // v%0 = [v%1]     makelist   (39)
+        case 94: { // v%0 = [v%1]     makelist   (39)
           ArrayList<Base> list = new ArrayList<>();
           reg = i1data[pos];
           list.add(regs[reg]);
           regs[i0data[pos]] = new List(list);
           break; }
-        case 94: // v%0 = +v%1   (51)
+        case 95: // v%0 = +v%1   (51)
           reg = i1data[pos];
           regs[i0data[pos]] = regs[reg].__pos__();
           break;
-        case 95: // v%0 = -v%1   (52)
+        case 96: // v%0 = -v%1   (52)
           reg = i1data[pos];
           regs[i0data[pos]] = regs[reg].__neg__();
           break;
-        case 96: // v%0 = ~v%1   (53)
+        case 97: // v%0 = ~v%1   (53)
           reg = i1data[pos];
           regs[i0data[pos]] = regs[reg].__invert__();
           break;
-        case 97: { // v%0 = v%1(args)   args with stars   (68)
+        case 98: { // v%0 = v%1(args)   args with stars   (68)
           // printObj("args97:", line);
           int[][] args = i_mat[pos];
           int arr_L = args.length;
@@ -1393,26 +1410,30 @@ public class Main {
 
         last_exc = e.err;
 
-        for (Object trie : tries) {
-          Object[] trie2 = (Object[]) trie;
+        // отсуствие в данной функции каких-либо tries:
+        if (tries_ts == null) // равнозначно tries_to == null
+          throw e;
 
-          int a = (int) trie2[0], b = (int) trie2[1], to = (int) trie2[3];
-          int[][] ts = (int[][]) trie2[2];
-          if (pos < a || pos >= b) continue;
-
+        // except-блоки с классом исключения:
+        int[][] ts = tries_ts[pos]; // "магия"! O(n) -> O(1)
+        if (ts != null)
           for (int[] ts2 : ts) {
-            Type exc = (Type) get_var(env, ts2[0]);
+            reg = ts2[0];
+            Type exc = (Type) regs[reg];
             Class<?> c_exc = exc.get_obj();
             if (c_exc.isInstance(last_exc)) {
               pos = ts2[1];
               continue loop;
             }
           }
-          if (to != -1) {
-            pos = to;
-            continue loop;
-          }
+
+        // общий except-блок, если остальные не сработали:
+        int to = tries_to[pos];
+        if (to != -1) {
+          pos = to;
+          continue loop;
         }
+
         throw e;
       }
     }

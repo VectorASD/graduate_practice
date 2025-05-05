@@ -54,6 +54,11 @@ public class Functions extends Base {
     return Main.None;
   }
 
+  public Base clear(Base[] args, Map<String, Base> dict) throws TypeError {
+    Main.clear();
+    return Main.None;
+  }
+
   public pFloat py_time() {
     Instant instant = Instant.now();
     long seconds = instant.getEpochSecond();
@@ -285,7 +290,6 @@ public class Functions extends Base {
       for (Base iter : iters) {
         try { obj = iter.__next__(); }
         catch (TypeError e) { throw new TypeError("zip argument #" + (pos + 1) + " " + iter.__name() + " must support iteration"); }
-        if (obj == null) return null;
         data[pos++] = obj;
       }
       return new Tuple(data);
@@ -312,7 +316,6 @@ public class Functions extends Base {
       Base res;
       try { res = iter.__next__(); }
       catch (TypeError e) { throw new TypeError("map argument " + iter.__name() + " must support iteration"); }
-      if (res == null) return null;
       return func.__call__(res);
     }
     @Override public Type __type__() { return type_map; }
@@ -373,10 +376,10 @@ public class Functions extends Base {
     return new PyThread(th);
   }
   public NoneType runOnUiThread(Base obj, final Base method) throws TypeError {
-    if (!(obj instanceof InstWrap)) throw new TypeError("runOnUiThread: ��اڧէѧݧ��ￄ1�71ￄ1�771ￄ1�71ￄ1�777 Activity �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(obj instanceof InstWrap)) throw new TypeError("runOnUiThread: ��اڧէѧݧ��ￄ1�71ￄ1�771ￄ1�71ￄ1�777 Activity �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
     Object obj2 = ((InstWrap) obj).getObj();
-    if (!(obj2 instanceof Activity)) throw new TypeError("runOnUiThread: ��اڧէѧݧ��ￄ1�71ￄ1�771ￄ1�71ￄ1�777 Activity �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
-    if (!(method instanceof Wrapper)) throw new TypeError("runOnUiThread: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(obj2 instanceof Activity)) throw new TypeError("runOnUiThread: ��اڧէѧݧ��ￄ1�71ￄ1�771ￄ1�71ￄ1�777 Activity �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(method instanceof Wrapper)) throw new TypeError("runOnUiThread: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
     Activity activity = (Activity) obj2;
     activity.runOnUiThread(new Runnable() {
       public void run() {
@@ -387,10 +390,10 @@ public class Functions extends Base {
     return Main.None;
   }
   public NoneType runOnGLThread(Base obj, final Base method) throws TypeError {
-    if (!(obj instanceof InstWrap)) throw new TypeError("runOnGLThread: ��اڧէѧݧ�� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(obj instanceof InstWrap)) throw new TypeError("runOnGLThread: ��اڧէѧݧ�� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
     Object obj2 = ((InstWrap) obj).getObj();
-    if (!(obj2 instanceof GLSurfaceView)) throw new TypeError("runOnGLThread: ��اڧէѧݧ�� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
-    if (!(method instanceof Wrapper)) throw new TypeError("runOnUiThread: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(obj2 instanceof GLSurfaceView)) throw new TypeError("runOnGLThread: ��اڧէѧݧ�� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(method instanceof Wrapper)) throw new TypeError("runOnUiThread: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
     GLSurfaceView view = (GLSurfaceView) obj2;
     view.queueEvent(new Runnable() {
       public void run() {
@@ -416,22 +419,22 @@ public class Functions extends Base {
     }
   };
   public Base await(Base obj, Base method) throws TypeError {
-    if (!(obj instanceof InstWrap)) throw new TypeError("await: ��اڧէѧݧڧ�� Activity �ڧݧ� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(obj instanceof InstWrap)) throw new TypeError("await: ��اڧէѧݧڧ�� Activity �ڧݧ� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
     Object obj2 = ((InstWrap) obj).getObj();
     MyRunnable runnable;
     // Thread th = Thread.currentThread();
     Semaphore sem = new Semaphore(0);
     if (obj2 instanceof GLSurfaceView) {
-      if (!(method instanceof Wrapper)) throw new TypeError("await: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+      if (!(method instanceof Wrapper)) throw new TypeError("await: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
       GLSurfaceView gl = (GLSurfaceView) obj2;
       runnable = new MyRunnable(method, sem);
       gl.queueEvent(runnable);
     } else if (obj2 instanceof Activity) {
-      if (!(method instanceof Wrapper)) throw new TypeError("await: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+      if (!(method instanceof Wrapper)) throw new TypeError("await: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
       Activity activity = (Activity) obj2;
       runnable = new MyRunnable(method, sem);
       activity.runOnUiThread(runnable);
-    } else throw new TypeError("await: ��اڧէѧݧڧ�� Activity �ڧݧ� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    } else throw new TypeError("await: ��اڧէѧݧڧ�� Activity �ڧݧ� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
     try { sem.acquire(); }
     catch (InterruptedException e) { Main.print_error("await:starter", e, method); }
     return runnable.result;

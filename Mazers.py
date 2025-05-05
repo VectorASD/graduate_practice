@@ -1,7 +1,7 @@
 if True: # __name__ == "__main__":
   from executor import main, load_codes # пока нереализован доступный всем способ компиляции БЕЗ доступа к компилятору (облачные технологии)
   load_codes("Mazers.py")
-  n = 1
+  n = 0
   main(("mazers", "time-tests", "optimizer-check")[n], False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
   exit()
 
@@ -36,8 +36,15 @@ check()
 ###~~~### time-tests
 
 def time_test():
+  def report():
+    if count & 7 == 0:
+      clear()
+      print("min: %.6f %.6f" % (td_min, td2_min))
+    print("%.6f %.6f" % res)
+
   data = tuple((0, "5") for i in range(100000))
   td_sum = td2_sum = count = 0
+  td_min = td2_min = float("inf")
   while True:
     check = (lambda value: None,)
     T = time()
@@ -56,6 +63,9 @@ def time_test():
     td2_sum += td2
     count += 1
     res = td_sum / count, td2_sum / count
+
+    td_min  = min(td_min, res[0])
+    td2_min = min(td2_min, res[1])
 
     # print(td, td2) # 0.8 vs 0.04 (вызов пустой функции в 20 раз дороже, чем проверка на None)
 
@@ -81,17 +91,18 @@ def time_test():
     """
 После оптимизации самого исполнительного ядра:
   сильно поменялся дизайн исполнителя: уменьшено количество dalvik-операций по максимуму;
-  StopIteration теперь не в виде исключения, а в виде __next__() = null... возможно, плохая идея;
   range теперь имеет ускоренную версию range-int за счёт int вместо BigInteger
     """
-    print(*res)    # 0.0372 vs 0.0289 (странненько, они приблизились)
+    # print(*res)    # 0.0372 vs 0.0289 (странненько, они приблизились)
+
+    report()
 
     # print(100000 / td, 100000 / td2)
 
 # замеры на QPython3 (это же устройство):
 #    0.02744 vs 0.0112
 # я довольно-таки близок к тому, чтобы обогнать его!
-# при том QPython3 на .so-библиотеке, т.е. этот тот же CPython, у меня - чистая Java
+# при том QPython3 на .so-библиотеке, т.е. это тот же CPython, а у меня - чистая Java
 
 def time_test2():
   while True:
