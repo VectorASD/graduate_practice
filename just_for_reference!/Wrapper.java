@@ -39,6 +39,9 @@ public class Wrapper extends Base {
   public int id() {
     return reg_locs.id;
   }
+  public RegLocs reg_locs() {
+    return reg_locs;
+  }
 
   @Override public Main __main() { return env; }
 

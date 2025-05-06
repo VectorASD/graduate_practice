@@ -417,17 +417,15 @@ public class Main {
     double T3 = Functions.time();
     Main.print("zlib:", T3 - T2);
 
-    g_count = r_int(bf);
-    b_count = r_int(bf);
+    int b_count = r_int(bf);
     int defs_n = r_int(bf);
     int c_count = r_int(bf);
     int news_n = r_int(bf);
-    builtins = new Base[b_count];
+    builtins = new int[b_count][];
     for (int i = 0; i < b_count; i++) {
       int k = r_int(bf);
       int v = r_int(bf);
-      if (builtins_arr.length <= k) System.out.println("Нет builtin'а на позиции " + k);
-      builtins[v] = builtins_arr[k];
+      builtins[i] = new int[] { k, v };
     }
     consts = new Base[c_count];
     for (int i = 0; i < c_count; i++) consts[i] = r_const(bf); 
@@ -449,7 +447,6 @@ public class Main {
       news[i] = r_str(bf);
     //printObj("news: ", news, " ", news.length, "\n");
 
-    // System.out.println("g: " + g_count + " b: " + b_count + " defs: " + defs_n);
     defs = new Object[defs_n];
 
     String[] packs = (
@@ -459,10 +456,10 @@ public class Main {
       "rr|rr|rr|rr|rr|r|rrr|ra|rrs|r|" + // 30 - 39
       "rrr|rsr|vr||r|rb|a|r|v|r|" +      // 40 - 49
       "r|r|r|r|rr|rd|rr|r|rr|vs|" +      // 50 - 59
-      "rr|rr|rr|rr|rrr|rrri|vrr|vri|re|rr|" + // 60 - 69
+      "rr|rr|rr|rr|rrr|rrri|vrr|vri|rre|rr|" + // 60 - 69
        "rr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 70 - 79
       "rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 80 - 89
-      "rrr|rrr|rr|rra|rr|rr|rr|rr|rre" // 90 - 98
+      "rrr|rrr|rr|rra|rr|rr|rr|rr" // 90 - 97
     ).split("\\|");
 
     for (int id = 0; id < defs_n; id++) {
@@ -544,17 +541,26 @@ public class Main {
         }
       }
 
+      count = r_int(bf);
+      int[][] const_arr = new int[count][];
+      for (int i = 0; i < count; i++) {
+        int k = r_int(bf);
+        int v = r_int(bf);
+        const_arr[i] = new int[] { k, v };
+      }
+
       defs[id] = new Object[] {
-        rln_count, // 0   in RegLocs
-        names,     // 1   here
-        args,      // 2   in RegLocs
-        codes,     // 3   here
-        tries_ts,  // 4   here
-        idata,     // 5   here
-        bdata,     // 6   here
-        i_arr,     // 7   here
-        i_mat,     // 8   here
-        tries_to,  // 9   here
+        rln_count, //  0   in RegLocs
+        names,     //  1   here
+        args,      //  2   in RegLocs
+        codes,     //  3   here
+        tries_ts,  //  4   here
+        idata,     //  5   here
+        bdata,     //  6   here
+        i_arr,     //  7   here
+        i_mat,     //  8   here
+        tries_to,  //  9   here
+        const_arr, // 10   in RegLocs
       };
     }
 
@@ -565,13 +571,15 @@ public class Main {
     start_program();
   }
 
-  int g_count, b_count;
-  //public static Main self = new Main();
   Object[] defs;
-  Base[] builtins, globals, consts;
-  /*static Base[] builtins;
-  public static Base[] globals;*/
-  // Base res_value;
+  int[][] builtins;
+  Base[] globals, consts;
+
+  public Base[] consts() {
+    return consts;
+  }
+
+  
 
   public static NoneType None = new NoneType();
   public static pBoolean True = new pBoolean(true);
@@ -703,7 +711,7 @@ public class Main {
       case 0: env.regs[n >> 3] = obj; break;
       // case 1: env.locs[n >> 3] = obj; break;
       case 2: globals[n >> 3] = obj; break;
-      case 3: builtins[n >> 3] = obj; break;
+      // case 3: builtins[n >> 3] = obj; break;
       default: env.scope.get((n & 0xffff) >> 3)[n >> 16] = obj;
     }
   }
@@ -752,6 +760,7 @@ public class Main {
 
     loop:
     while (true) {
+      // printObj(id + ":" + pos + " ", regs);
       try {
         switch (codes[pos]) {
         case 0: // v%0 = [None] * %1
@@ -806,9 +815,9 @@ public class Main {
         case 9: // goto %0
           pos += i0data[pos];
           continue loop;
-        case 10: // константу в регистр
+        /* case 10: // константу в регистр
           regs[i0data[pos]] = consts[i1data[pos]];
-          break;
+          break;*/
         case 11: // переменную в регистр
           throw new Exception("11 недопустим");
           // regs[i0data[pos]] = get_var(env, i1data[pos]);
@@ -1096,7 +1105,7 @@ public class Main {
             continue loop;
           }
           break;
-        case 59: // v%0 <- "package%1"
+        case 59: // %0 <- "package%1"
           set_var(env, i0data[pos], new JavaWrap(bdata[pos]));
           break;
         case 60: // v%0 = reg v%1
@@ -1112,11 +1121,11 @@ public class Main {
           if (obj == null) throw new NameError("name 'globals:" + i1data[pos] + "' is not defined");
           regs[i0data[pos]] = obj;
           break;
-        case 63: // v%0 = builtin %1
+        /* case 63: // v%0 = builtin %1
           obj = builtins[i1data[pos]];
           if (obj == null) throw new NameError("name 'builtins:" + i1data[pos] + "' is not defined");
           regs[i0data[pos]] = obj;
-          break;
+          break;*/
         case 64: // v%0 = scope %1 %2
           obj = scope.get(i1data[pos])[i2data[pos]];
           if (obj == null) throw new NameError("name 'scope:" + i1data[pos] + ":" + i2data[pos] + "' is not defined");
@@ -1149,8 +1158,8 @@ public class Main {
           }
           set_var(env, i0data[pos], obj);
           break;
-        case 68: { // v%0 = v%0(args)   args with stars
-          // printObj("args68:", line);
+        case 68: { // v%0 = v%1(args)   args with stars   (68)
+          // printObj("args68: ", i0data[pos], " ", i1data[pos], " ", i_mat[pos]);
           int[][] args = i_mat[pos];
           int arr_L = args.length;
           ArrayList<Base> args2 = new ArrayList<>();
@@ -1180,8 +1189,9 @@ public class Main {
           }
           Base[] args3 = new Base[args2.size()];
           args2.toArray(args3);
-          reg = i0data[pos];
-          regs[reg] = regs[reg].__call__(args3, dict);
+          // printObj("args:", args3);
+          reg = i1data[pos];
+          regs[i0data[pos]] = regs[reg].__call__(args3, dict);
           last_method = id;
           break; }
 
@@ -1354,41 +1364,6 @@ public class Main {
           reg = i1data[pos];
           regs[i0data[pos]] = regs[reg].__invert__();
           break;
-        case 98: { // v%0 = v%1(args)   args with stars   (68)
-          // printObj("args97:", line);
-          int[][] args = i_mat[pos];
-          int arr_L = args.length;
-          ArrayList<Base> args2 = new ArrayList<>();
-          Map<String, Base> dict = new HashMap<>();
-          for (int i = 0; i < arr_L; i++) {
-            int[] row = args[i];
-            int type = row[0];
-            reg = row[i];
-            Base item = regs[reg];
-            switch (type) {
-              case 0: args2.add(item); break;
-              case 1: // *
-                for (Base item2 : item) args2.add(item2);
-                break;
-              case 2: // **
-                Map<Base, Base> dict2 = item.__dict().get_dict();
-                for (Map.Entry<Base, Base> kv : dict2.entrySet()) {
-                  Base key = kv.getKey();
-                  if (!(key instanceof pString)) throw new TypeError("keywords must be strings");
-                  dict.put(((pString) key).str, kv.getValue());
-                }
-                break;
-              default: // anc
-                dict.put(String.valueOf(type - 3), item);
-                break;
-            }
-          }
-          Base[] args3 = new Base[args2.size()];
-          args2.toArray(args3);
-          reg = i1data[pos];
-          regs[i0data[pos]] = regs[reg].__call__(args3, dict);
-          last_method = id;
-          break; }
 
         default:
           throw new TypeError("• code_" + codes[pos] + " не реализован!");
@@ -1442,14 +1417,21 @@ public class Main {
   void start_program() {
     double T1 = Functions.time();
 
-    globals = new Base[g_count];
-    //Arrays.fill(globals, Void);
-    // for (int i = 0; i < g_count; i++) globals[i] = Void;
+    Wrapper module = new Wrapper(this, 0);
+
+    globals = module.reg_locs().regs;
+    for (int[] pair : builtins) {
+      int k = pair[0], v = pair[1];
+      if (builtins_arr.length <= k) {
+        print("Нет builtin'а на позиции " + k);
+        return;
+      }
+      globals[v] = builtins_arr[k];
+      // print("builtin: g" + v + " = ", globals[v]);
+    }
     // printObj("globals: ", globals);
-    // printObj("builtins: ", builtins);
-    // printObj("builtins_arr: ", builtins_arr);
+
     try {
-      Wrapper module = new Wrapper(this, 0);
       module.__call__();
       double T2 = Functions.time();
       Main.print("runtime:", T2 - T1);

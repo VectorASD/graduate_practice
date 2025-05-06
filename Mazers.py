@@ -1,7 +1,7 @@
 if True: # __name__ == "__main__":
   from executor import main, load_codes # пока нереализован доступный всем способ компиляции БЕЗ доступа к компилятору (облачные технологии)
   load_codes("Mazers.py")
-  n = 0
+  n = 1
   main(("mazers", "time-tests", "optimizer-check")[n], False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
   exit()
 
@@ -37,9 +37,8 @@ check()
 
 def time_test():
   def report():
-    if count & 7 == 0:
-      clear()
-      print("min: %.6f %.6f" % (td_min, td2_min))
+    clear()
+    print("min: %.6f %.6f" % (td_min, td2_min))
     print("%.6f %.6f" % res)
 
   data = tuple((0, "5") for i in range(100000))
@@ -59,13 +58,13 @@ def time_test():
       if func is not None: func(value)
     td2 = time() - T
 
-    td_sum += td
-    td2_sum += td2
-    count += 1
-    res = td_sum / count, td2_sum / count
+    res = td, td2
+    # Замечен факт: чем больше операций после замеряемых по времени участков,
+    # тем выше трудоёмкость самих участков. Может это и не логично,
+    # но, предположительно, нагрузка на Java-мусоросборщик влияет на ВЕСЬ код
 
-    td_min  = min(td_min, res[0])
-    td2_min = min(td2_min, res[1])
+    td_min  = min(td_min, td)
+    td2_min = min(td2_min, td2)
 
     # print(td, td2) # 0.8 vs 0.04 (вызов пустой функции в 20 раз дороже, чем проверка на None)
 
@@ -95,7 +94,16 @@ def time_test():
     """
     # print(*res)    # 0.0372 vs 0.0289 (странненько, они приблизились)
 
-    report()
+    """
+Оптимизация концепции builtins, globals, consts и locals:
+  построена обобщёная схема всех команд виртуального процессора;
+  за счёт этой схемы, исправлены некоторые ошибки оптимизатора;
+  вместо отдельного globals, теперь, вместо него, locals модуля;
+  bultins и globals теперь объеденены;
+  константы загружаются в регистры теперь на этапе объявления функции, а не прямо внутри тела функции
+    """
+
+    report()    # 0.0326 vs 0.0277 (функции работают ещё чуть-быстрее)
 
     # print(100000 / td, 100000 / td2)
 

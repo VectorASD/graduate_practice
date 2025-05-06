@@ -26,6 +26,7 @@ public class RegLocs {
 
     int rln_count = (int) state[0];
     Object[] args = (Object[]) state[2];
+    const_arr = (int[][]) state[10];
 
 
 
@@ -46,6 +47,14 @@ public class RegLocs {
     dstar = (int) args[3]; // -1 <-> None
     without_default = (int) args[4];
     arg_links = (Map<String, Integer>) args[5]; // причина применения @SuppressWarnings("unchecked")
+
+
+
+    Base[] consts = env.consts();
+    for (int[] pair : const_arr)
+      regs[pair[0]] = consts[pair[1]];
+
+    regs_count = regs.length - const_arr.length;
   }
 
   int[] loc_args_0;
@@ -55,11 +64,14 @@ public class RegLocs {
   int without_default;
   Map<String, Integer> arg_links;
 
+  int[][] const_arr;
+
+  int regs_count;
   boolean used;
 
   void argumentor(Base[] a_args, Map<String, Base> kw_args) throws RuntimeError {
     if (used)
-      Arrays.fill(regs, null);
+      Arrays.fill(regs, 0, regs_count, null);
     else used = true;
 
     int recv_args = a_args.length;
