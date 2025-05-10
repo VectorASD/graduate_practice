@@ -1,7 +1,7 @@
 if True: # __name__ == "__main__":
   from executor import main, load_codes # пока нереализован доступный всем способ компиляции БЕЗ доступа к компилятору (облачные технологии)
   load_codes("Mazers.py")
-  n = 1
+  n = 0
   main(("mazers", "time-tests", "optimizer-check")[n], False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
   exit()
 
@@ -103,7 +103,14 @@ def time_test():
   константы загружаются в регистры теперь на этапе объявления функции, а не прямо внутри тела функции
     """
 
-    report()    # 0.0326 vs 0.0277 (функции работают ещё чуть-быстрее)
+    # report()    # 0.0326 vs 0.0277 (функции работают ещё чуть-быстрее)
+
+    """
+Просто пометил в AndroidManifest приложение, как "игра":
+  автоматически включается Hyperboost realme для ускорения
+    """
+
+    # report()    # 0.02821 vs 0.02129 (почти обогнал функции оригинального питона)
 
     # print(100000 / td, 100000 / td2)
 
@@ -123,6 +130,149 @@ Thread(time_test).start()
 ###~~~### mazers
 
 import common # adler32, sha1
+
+
+
+
+
+def DalvikPacker(codes_b, Pool):
+  # Самый настоящий ассемблер DVM-байткода
+
+  w_byte = codes_b.w_byte
+  write = codes_b.write
+  write2 = codes_b.write2
+  write4 = codes_b.write4
+  tell = codes_b.tell
+  seek = codes_b.seek
+  # sleb128 = codes_b.sleb128
+  # uleb128 = codes_b.uleb128
+
+  type_d   = Pool.type_d
+  field_d  = Pool.field_d
+  method_d = Pool.method_d
+
+  PackedSwitch = {}
+  SparseSwitch = {}
+
+  def byte(): # 10-13, 15-17, 29-30, 39
+    w_byte(code)
+    w_byte(data[1])
+
+  def byte_type(): # 28, 31, 34
+    w_byte(code)
+    w_byte(data[1])
+    write2(type_d[data[2]])
+
+  def pair3(): # 45-49, 68-81, 144-175
+    assert len(data) == 4
+    write(bytes(data)) # code, a, b, c
+
+  def pair_field(): # 82-95
+    w_byte(code)
+    a, b = data[1]
+    w_byte(b << 4 | a)
+    write2(field_d[data[2]])
+
+  def ListV_none(): # 252
+    w_byte(code)
+    name, regs = data
+    L = len(regs)
+    # regs += (0,) * (5 - L) долго, да и в целом - странно
+    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+    write2(name)
+    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+
+  def ListV_type(): # 36
+    w_byte(code)
+    name, regs = data
+    L = len(regs)
+    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+    write2(type_d[name])
+    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+
+  def ListV_method(): # 110-114
+    w_byte(code)
+    _, name, regs = data
+    L = len(regs)
+    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+    write2(method_d[name])
+    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+
+  def void():
+    print(code)
+    write(b"\0\0")
+
+  dispatch = (
+    *(void,) * 10,
+    byte, byte, byte, byte, # 10-13
+    lambda: write(b"\x0e\0"), # 14 (return-void)
+    byte, byte, byte, # 15-17
+    *(void,) * 10,
+    byte_type, # 28
+    byte, byte, # 29-30
+    byte_type, # 31
+    void, void,
+    byte_type, # 34
+    void, void, void, void,
+    byte, # 39
+    void, void, void, void, void,
+    pair3, pair3, pair3, pair3, pair3, # 45-49
+    *(void,) * (68 - 50),
+    *(pair3,) * 14, # 68-81
+    *(pair_field,) * 14, # 82-95
+    *(void,) * (110 - 96),
+    ListV_method, ListV_method, ListV_method, ListV_method, ListV_method, # 110-114
+    *(void,) * (144 - 115),
+    *(pair3,) * 32, # 144-175
+    *(void,) * (256 - 176),
+  )
+  print(len(dispatch))  
+
+  data = code = line = None
+
+  # Самая "тяжёлая" функция! К ней особое внимание по оптимизации
+  # Начиная с 1.10 версии Python, вводится match case.
+  # Позже, добавлю это в грамматический файл, а также, реализую в своём компиляторе, с механикой от Java, чтобы заменить все dispatch-объекты на них
+
+  def main(code_data):
+    nonlocal data, code, line
+
+    PackedSwitch.clear()
+    SparseSwitch.clear()
+
+    seek(4, 1) # пока неизвестен размер кода
+    begin = tell()
+
+    if type(code_data) is dict:
+      code_data = code_data.values()
+    disp_table = dispatch
+
+    for _data in code_data:
+      _line = tell() - begin
+      assert _line & 1 == 0
+
+      data = _data
+      code = _code = _data[0]
+      line = _line >> 1
+      disp_table[_code]()
+
+    size = (tell() - begin) >> 1
+    if size & 1: write2(0) # pad
+    end = tell()
+
+    seek(begin - 4)
+    write4(size)
+
+    seek(end) # важно!
+
+  return main
+
+
+
+
 
 class Mark:
   def __init__(self, pos):
@@ -190,7 +340,7 @@ class Blockerson:
 
     for num in self.hook:
       T = type(num)
-      print(num, T, T is Mark)
+      # print(num, T, T is Mark)
       if T is Mark:
         if not num.raz: raise Exception("Не все позиции обработаны, что были поданы в uleb128_h")
         num = num.pos
@@ -442,13 +592,17 @@ class Pooler:
 
   # вытягивает ВСЕ пул-ресурсы из класса
 
-  def collector(self, classObj):
+  def collector(self):
+    # annotations
+
     def collectAnnot(annot):
       T, items = annot
       addType(T)
       for TypeV, name, value in items:
         addStr(name)
         encodedValue(TypeV, value)
+
+    # encoded values
 
     def disp_27(value):
       assert value.startswith(".enum "), "EncodedValue 27 с неправильным началом"
@@ -470,28 +624,73 @@ class Pooler:
     def encodedValue(TypeV, value):
       dispatch[TypeV](value)
 
+    # code values
+
     addStr = self.addStr
     addType = self.addType
+    addTypeList = self.addTypeList
     addProto = self.addProto
     addField = self.addField
     addMethod = self.addMethod
 
-    className, accessF, superName, interfaces, sourceStr, classAnnots, allFM = classObj
-    self.addType(className)
-    if superName is not None: addType(superName)
-    self.addTypeList(interfaces)
-    if sourceStr is not None: addStr(sourceStr)
-    for annot in classAnnots: collectAnnot(annot)
+    def code_250(data):
+      addMethod(data[0][0])
+      addProto(data[2])
+    def code_251(data):
+      addMethod(data[3])
+      addProto(data[4])
 
-    for group_n, name, accessFM, value, elements, codeObj, debug in allFM:
-      is_method = group_n >= 2
+    code_dispatch = {
+      26: (addStr, 2),
+      27: (addStr, 2),
+      28: (addType, 2),
+      31: (addType, 2),
+      32: (addType, 2),
+      34: (addType, 2),
+      35: (addType, 2),
+      36: (addType, 1),
+      37: (addType, 3),
+      250: (code_250, 100),
+      251: (code_251, 100),
+      255: (addProto, 2),
+    }
+    for i in range(82, 110): code_dispatch[i] = (addField, 2)
+    for i in range(110, 115): code_dispatch[i] = (addMethod, 1)
+    for i in range(116, 121): code_dispatch[i] = (addMethod, 3)
 
-      (addMethod if is_method else addField)(className + "->" + name)
-      if value is not None:
-        encodedValue(*value)
-      for element in elements: collectAnnot(element)
-      if codeObj is not None:
-        registers, ins, outs, insns, codeD, tries3 = codeObj
+    plug = (lambda _: None, 0)
+    code_dispatch = tuple(
+      code_dispatch[i] if i in code_dispatch else plug
+      for i in range(256)
+    ) # dict to tuple для ускорения, а также, для исключения потребности обработки KeyError
+
+    # main collector
+
+    def collect(classObj):
+      className, accessF, superName, interfaces, sourceStr, classAnnots, allFM = classObj
+      addType(className)
+      if superName is not None: addType(superName)
+      addTypeList(interfaces)
+      if sourceStr is not None: addStr(sourceStr)
+      for annot in classAnnots: collectAnnot(annot)
+
+      for group_n, name, accessFM, value, elements, codeObj, debug in allFM:
+        is_method = group_n >= 2
+
+        (addMethod if is_method else addField)(className + "->" + name)
+        if value is not None:
+          encodedValue(*value)
+        for element in elements: collectAnnot(element)
+        if codeObj is not None:
+          registers, ins, outs, insns, code_data, tries = codeObj
+          if type(code_data) is dict: code_data = code_data.values()
+          for data in code_data:
+            code = data[0]              
+            method, n = code_dispatch[code]
+            try: method(data[n])
+            except IndexError: method(data)
+
+    return collect
 
 
 
@@ -503,10 +702,11 @@ def DexWriter(filename, dex_classes):
   # Pool.addStr("meow!")
   # Pool.addStr("текст 🗿 из 👍 суррогатных 🔥 пар 🎉")
   # Pool.addStr("woof!")
+  collect = Pool.collector()
   for N, classObj in enumerate(dex_classes, 1):
     name = classObj[0]
     print("%04s %s" % (N, name))
-    Pool.collector(dex_class)
+    collect(dex_class)
   Pool.sorting()
   # Pool.sort_FM(class_arr)
 
@@ -570,7 +770,7 @@ def DexWriter(filename, dex_classes):
           print((Pool.method_arr if is_method else Pool.field_arr)[pred_id][0])
           print(name)
           raise Exception("Дельта не должна быть меньше нуля (ошибка сортировщика полей & методов)! delta = %s" % delta)
-        if is_method: res_append((delta, accessFM, 0)) # write_codes(name, codeObj, debug)))
+        if is_method: res_append((delta, accessFM, write_codes(codeObj, debug)))
         else: res_append((delta, accessFM))
         pred_id = nameId
 
@@ -598,6 +798,80 @@ def DexWriter(filename, dex_classes):
     # write_encoded_arr(values, value_b)
     return pos
 
+  def write_codes(codeObj, debug):
+    if codeObj is None: return 0
+
+    registers, ins, outs, insns, code_data, tries = codeObj
+
+    res = codes_b.pos()
+    TL = len(tries)
+
+    write2 = codes_b.write2
+    write4 = codes_b.write4
+    tell = codes_b.tell
+    seek = codes_b.seek
+    sleb128 = codes_b.sleb128
+    uleb128 = codes_b.uleb128
+
+    write2(registers)
+    write2(ins)
+    write2(outs)
+    write2(TL)
+    write4(0) # write4(write_debug(debug))
+
+    dalvikPacker(code_data)
+
+    # Проверка вместо DalvikPacker:
+    # write4(1)
+    # codes_b.write(b"\x0e\0\0\0") # return-void + pad
+
+    if not TL: return res
+
+    # Запись try-блоков:
+
+    start = tell()
+    seek(TL * 8, 1)
+    posH = tell()
+    seek(1, 1)
+    offs, catch_d = [], {}
+    offs_app = offs.append
+
+    type_d = Pool.type_d
+
+    for _, _, Catch, CatchAllAddr in tries:
+      key = (Catch, CatchAllAddr)
+      try:
+        offs_app(catch_d[key])
+        continue
+      except KeyError: pass
+
+      off = tell() - posH
+      catch_d[key] = off
+      offs_app(off)
+
+      all = CatchAllAddr is not None
+      L = len(Catch)
+      sleb128(-L if all else L)
+      for Type, addr in Catch:
+        uleb128(type_d[Type])
+        uleb128(addr)
+      if all: write2(CatchAllAddr)
+
+    #print(offs, len(catch_d))
+    codes_b.write(b"\0" * (-tell() % 4))
+    end = tell()
+
+    seek(start)
+    for trie, off in zip(tries, offs):
+      startAddr, insnCount, _, _ = trie
+      write4(startAddr)
+      write2(insnCount)
+      write2(off)
+    codes_b.w_byte(len(catch_d))
+
+    seek(end) # важно!
+    return res
+
 
 
   linkS = linkO = mapO = stringIS = stringIO = typeIS = typeIO = protoIS = protoIO = fieldIS = fieldIO = methodIS = methodIO = classDefsIS = classDefsIO = dataIS = dataIO = 0
@@ -611,6 +885,8 @@ def DexWriter(filename, dex_classes):
   codes_b = Blockerson()
   class_b = Blockerson()
   class_data_b = Blockerson()
+
+  dalvikPacker = DalvikPacker(codes_b, Pool)
 
   with open(filename, "wb") as file:
     Blockerson.file = file
@@ -651,10 +927,10 @@ def DexWriter(filename, dex_classes):
     annot_dir_b.apply(4, 0x2006)
 
     Blockerson.final()
-    print("map:")
     Map = Blockerson.Map
     map_d = Blockerson.map_d
-    for item in Map: print("  ", item)
+    # print("map:")
+    # for item in Map: print("  ", item)
     mapO = write_map(Map, map_d)
 
     stringIS, stringIO = map_d.get(1, (0, 0))
@@ -719,7 +995,7 @@ IS_INSTANCE_FIELD = 1
 IS_DIRECT_METHOD  = 2 # static or constructor
 IS_VIRTUAL_METHOD = 3
 
-dex_class = ('Lpbi/secured/root;',
+dex_class = ('Lpbi/secured/Root;',
  ACCESS_PUBLIC,
  'Ljava/lang/Object;',
  [],
@@ -730,17 +1006,17 @@ dex_class = ('Lpbi/secured/root;',
    (2, 1, 2, 11,
     {0: (112, 'Ljava/lang/Object;-><init>()V', (1,)),
      3: (34, 0, 'Lpbi/secured/class1;'),
-     5: (112, 'Lpbi/secured/class1;-><init>(Lpbi/secured/root;)V', (0, 1)),
-     8: (91, (0, 1), 'Lpbi/secured/root;->obj:Lpbi/secured/class1;'),
+     5: (112, 'Lpbi/secured/class1;-><init>(Lpbi/secured/Root;)V', (0, 1)),
+     8: (91, (0, 1), 'Lpbi/secured/Root;->obj:Lpbi/secured/class1;'),
      10: (14,)
     }, []), {}),
   (IS_DIRECT_METHOD, 'checker()V', ACCESS_STATIC | ACCESS_PUBLIC, None, [],
    (1, 0, 1, 9,
-    {0: (34, 0, 'Lpbi/secured/root;'),
-     2: (112, 'Lpbi/secured/root;-><init>()V', (0,)),
-     5: (110, 'Lpbi/secured/root;->test()V', (0,)),
-     8: (14,)
-    }, []), {}),
+    ((34, 0, 'Lpbi/secured/Root;'),
+     (112, 'Lpbi/secured/Root;-><init>()V', (0,)),
+     (110, 'Lpbi/secured/Root;->test()V', (0,)),
+     (14,)
+    ), []), {}),
   (IS_DIRECT_METHOD, 'sum(II)I', ACCESS_STATIC | ACCESS_PUBLIC, None, [],
    (3, 2, 0, 3,
     {0: (144, 0, 1, 2),
@@ -748,12 +1024,30 @@ dex_class = ('Lpbi/secured/root;',
     }, []), {}),
   (IS_VIRTUAL_METHOD, 'test()V', ACCESS_PUBLIC, None, [],
    (2, 1, 1, 6,
-    {0: (84, (0, 1), 'Lpbi/secured/root;->obj:Lpbi/secured/class1;'),
-     2: (110, 'Lpbi/secured/class1;->test()V', (0,)),
-     5: (14,)
-    }, []), {})
+    ((84, (0, 1), 'Lpbi/secured/Root;->obj:Lpbi/secured/class1;'),
+     (110, 'Lpbi/secured/class1;->test()V', (0,)),
+     (14,)
+    ), []), {})
   ]
 )
 
 DexWriter("/sdcard/Check.dex", (dex_class,))
 print("ok!")
+
+def TheGreatestBeginning():
+  # dex, context смотрите в модуле common.py
+  classLoader = dex(context, "/sdcard/Check.dex")
+  root = classLoader("pbi.secured.root") # забавный факт: я сделал класс Root с большой буквы (правило именования в Java), но его по прежнему можно загружать, с маленькой
+  print(root.methods()) # ЕСТЬ КОНТАКТ!!!!! ClassLoader ПОНЯЛ МЕНЯ!!!!;
+  _sum = root._mw_sum(int, int) # аналогично root.methods()["sum(II)"]
+  print(_sum)
+  print(_sum(123, 64)) # 187!!!!! ДААААААААА!!!!!!!! ПООООБЕЕЕЕЕДААААА!!!!! 🎇🎆🎇🎆🎇🎆🎇🎆
+
+  # В этой элементарной суммирующей функции вложены годы моей работы,
+  # начинающиеся ещё с далёкого 10 моего класса (весь сентябрь 2019 года был отпуск в Новороссийске),
+  # когда кроме первого полностью рабочего DexReader'а (в конце отпуска) у меня вообще ничего не было,
+  # а собственного Python-движка даже и в планах не было!!! Т.к. тогда я питон (ну и Java, раз на то пошло) толком-то не знал, как сейчас
+  # 6 лет хобби-жизни в этих 1053 строчках, пусть и много времени ушло не в данное русло, а в основном: в школу, в развлечения и в универ
+
+TheGreatestBeginning()
+# На всё про всё в runtime: 24 ms

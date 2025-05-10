@@ -77,11 +77,10 @@ getDir = Context._mw_getDir(str, int) # name, mode
 getClassLoader = Context._mw_getClassLoader()
 loadClass = ClassLoader._mw_loadClass(str) # name
 
-def dex(ctx):
+def dex(ctx, dexAssertPath):
   # SCL = ClassLoader._m_getSystemClassLoader()
   # print(SCL)
   CL = getClassLoader.wrap(ctx)().cast(ClassLoader)
-  dexAssertPath = "/sdcard/JavaNIDE/SC2/jadx-1.5.1.dex"
   dexPath = jFile(getDir.wrap(ctx)("dex", MODE_PRIVATE), "name.dex")._m_getAbsolutePath()
   dexOutputDir = getDir.wrap(ctx)("outdex", MODE_PRIVATE)._m_getAbsolutePath()
   T = time()
@@ -96,15 +95,16 @@ def dex(ctx):
   print(T3 - T2)
   print(T4 - T3)
   print("all:", T4 - T)
-  classLoader = loadClass.wrap(classes)
+  return loadClass.wrap(classes)
+  """
+  Всё равно этот JADX почему-то не работает из-за callsite'ов в Android (callsite - к примеру, обычная множественная конкатенация строчек в одну). Возможная причина: слишкой низкий min-sdk
   JadxArgs = classLoader("jadx.api.JadxArgs")
   JadxDecompiler = classLoader("jadx.api.JadxDecompiler")
   print(JadxArgs)
   print(JadxDecompiler)
   for name in sorted(JadxArgs.methods()): print(name)
   jadxArgs = JadxArgs()
-  
-  HALT(0)
+  """
 
 
 

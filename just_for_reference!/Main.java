@@ -455,7 +455,7 @@ public class Main {
       "rr|rr|rr|rr|rr|rr|rr|rr|rr|rr|" + // 20 - 29
       "rr|rr|rr|rr|rr|r|rrr|ra|rrs|r|" + // 30 - 39
       "rrr|rsr|vr||r|rb|a|r|v|r|" +      // 40 - 49
-      "r|r|r|r|rr|rd|rr|r|rr|vs|" +      // 50 - 59
+      "r|r|r|r|rr|r|rr|r|rr|vs|" +       // 50 - 59
       "rr|rr|rr|rr|rrr|rrri|vrr|vri|rre|rr|" + // 60 - 69
        "rr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 70 - 79
       "rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 80 - 89
@@ -721,7 +721,6 @@ public class Main {
 
 
   int last_method = -1;
-  PyException last_exc;
 
   private static Map<String, Base> void_map = new HashMap<>();
 
@@ -758,6 +757,8 @@ public class Main {
     Map<String, Base> void_hash_map = void_map;
     NoneType _none = None;
 
+    Base last_exc = None; // PyException | NoneType
+
     loop:
     while (true) {
       // printObj(id + ":" + pos + " ", regs);
@@ -768,7 +769,9 @@ public class Main {
           break;
         case 1: // v%0[%1] = v%2
           reg = i2data[pos];
-          regs[i0data[pos]].__setitem__(i1data[pos], regs[reg]);
+          obj = regs[reg];
+          if (obj == null) throw new NameError("name 'regs:" + reg + "' is not defined");
+          regs[i0data[pos]].__setitem__(i1data[pos], obj);
           break;
         case 2: // v%0 = list()
           regs[i0data[pos]] = new List();
@@ -807,10 +810,11 @@ public class Main {
           break;
         case 8: // v%0.append(v%1)
           //get_reg(i0data[pos]).__getattr__("append").__call__(get_reg(i1data[pos]));
-          reg = i0data[pos];
-          obj = regs[reg];
           reg = i1data[pos];
-          obj.append(regs[reg]);
+          obj = regs[reg];
+          if (obj == null) throw new NameError("name 'regs:" + reg + "' is not defined");
+          reg = i0data[pos];
+          regs[reg].append(obj);
           break;
         case 9: // goto %0
           pos += i0data[pos];
@@ -824,7 +828,9 @@ public class Main {
           // break;
         case 12: // регистр в переменную
           reg = i1data[pos];
-          set_var(env, i0data[pos], regs[reg]);
+          obj = regs[reg];
+          if (obj == null) throw new NameError("name 'regs:" + reg + "' is not defined");
+          set_var(env, i0data[pos], obj);
           break;
         case 13: // v%0 = tuple(v%0) (tuplemaker)
           reg = i0data[pos];
@@ -1057,6 +1063,7 @@ public class Main {
           break;
         case 48: // %0 = last_exception
           set_var(env, i0data[pos], last_exc);
+          last_exc = None;
           break;
         case 49: // raise v%0
           reg = i0data[pos];
@@ -1081,13 +1088,18 @@ public class Main {
           reg = i1data[pos];
           regs[i0data[pos]] = regs[reg].__enter__();
           break;
-        case 55: { // if v%0.__exit__(c%1, c%1.args, None): raise c%s
-          Base err = consts[i1data[pos]];
-          boolean is_err = err instanceof PyException;
-          Base args2 = is_err ? ((PyException) err).args : _none;
+        case 55: { // ifn v{reg}.__exit__(type(last_exception), last_exception, None): raise last_exception
           reg = i0data[pos];
-          boolean alarm = !regs[reg].__exit__(err, args2, None).__bool();
-          if (is_err && alarm) err.__raise__();
+          if (last_exc instanceof PyException) {
+            PyException exc = (PyException) last_exc;
+            last_exc = None;
+            Base alarm = regs[reg].__exit__(exc.__type__(), exc, None);
+            if (!alarm.__bool()) throw exc.err;
+            // exc.__raise__() очищает stackTrace!!! Так здесь делать нельзя, поэтому throw exc.err;
+            // Очистка stackTrace введена ТОЛЬКО на тот случай если будет использоваться тип исключения напрямую вместо
+            //   его экземпляра, что оригинальный Python ещё как допускает, иначе бы он копился в этом типе исключения бесконечно
+          } else
+            regs[reg].__exit__(None, None, None);
           break; }
         case 56: // v%0.add(v%1)
           reg = i0data[pos];
@@ -1097,6 +1109,7 @@ public class Main {
           break;
         case 57: // v%0 = last_exc
           regs[i0data[pos]] = last_exc;
+          last_exc = None;
           break;
         case 58: // if v%0: goto %1
           reg = i0data[pos];
