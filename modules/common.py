@@ -77,6 +77,7 @@ getDir = Context._mw_getDir(str, int) # name, mode
 getClassLoader = Context._mw_getClassLoader()
 loadClass = ClassLoader._mw_loadClass(str) # name
 
+"""
 def dex(ctx, dexAssertPath):
   # SCL = ClassLoader._m_getSystemClassLoader()
   # print(SCL)
@@ -96,7 +97,7 @@ def dex(ctx, dexAssertPath):
   print(T4 - T3)
   print("all:", T4 - T)
   return loadClass.wrap(classes)
-  """
+
   Всё равно этот JADX почему-то не работает из-за callsite'ов в Android (callsite - к примеру, обычная множественная конкатенация строчек в одну). Возможная причина: слишкой низкий min-sdk
   JadxArgs = classLoader("jadx.api.JadxArgs")
   JadxDecompiler = classLoader("jadx.api.JadxDecompiler")
@@ -104,7 +105,17 @@ def dex(ctx, dexAssertPath):
   print(JadxDecompiler)
   for name in sorted(JadxArgs.methods()): print(name)
   jadxArgs = JadxArgs()
-  """
+"""
+
+def dex(ctx, dexData):
+  CL = getClassLoader.wrap(ctx)().cast(ClassLoader)
+  dexPath = jFile(getDir.wrap(ctx)("dex", MODE_PRIVATE), "name.dex")._m_getAbsolutePath()
+  dexOutputDir = getDir.wrap(ctx)("outdex", MODE_PRIVATE)._m_getAbsolutePath()
+
+  with open(dexPath, "wb") as file: file.write(dexData)
+
+  classes = DexClassLoader(dexPath, dexOutputDir, str, CL)
+  return loadClass.wrap(classes)
 
 
 

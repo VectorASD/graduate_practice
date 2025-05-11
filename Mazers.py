@@ -147,6 +147,7 @@ def DalvikPacker(codes_b, Pool):
   # sleb128 = codes_b.sleb128
   # uleb128 = codes_b.uleb128
 
+  str_d    = Pool.str_d
   type_d   = Pool.type_d
   field_d  = Pool.field_d
   method_d = Pool.method_d
@@ -163,15 +164,32 @@ def DalvikPacker(codes_b, Pool):
     w_byte(data[1])
     write2(type_d[data[2]])
 
+  def byte_goto(): # 56-61
+    code, reg, off = data
+    w_byte(code)
+    w_byte(reg)
+    write2(off - line)
+
   def pair3(): # 45-49, 68-81, 144-175
     assert len(data) == 4
     write(bytes(data)) # code, a, b, c
 
-  def pair_field(): # 82-95
+  def pair(): # 33, 123-143, 176-207
+    code, a, b = data
     w_byte(code)
-    a, b = data[1]
     w_byte(b << 4 | a)
-    write2(field_d[data[2]])
+
+  def pair_goto(): # 50-55
+    code, (a, b), off = data
+    w_byte(code)
+    w_byte(b << 4 | a)
+    write2(off - line)
+
+  def pair_field(): # 82-95
+    code, (a, b), field = data
+    w_byte(code)
+    w_byte(b << 4 | a)
+    write2(field_d[field])
 
   def ListV_none(): # 252
     w_byte(code)
@@ -201,35 +219,141 @@ def DalvikPacker(codes_b, Pool):
     w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
     w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
 
+  def int_const(): # 18-21
+    code, a, b = data
+    if a in range(16) and b in range(-8, 8): n_code = 18
+    elif b in range(-0x8000, 0x8000): n_code = 19
+    elif b & 0xffff == 0: n_code = 21
+    else: n_code = 20
+
+    if n_code != code: print("!!!", code, "->", n_code, data)
+
+    w_byte(n_code)
+    if n_code == 18: w_byte(b << 4 | a)
+    else:
+      w_byte(a)
+      if n_code == 19: write2(b)
+      elif n_code == 20: write4(b)
+      else: write2(b >> 16)
+
+  def wide_const(): # 22-23
+    code, a, b = data
+    n_code = 22 if b in range(-0x8000, 0x8000) else 23
+
+    if n_code != code: print("!!!", code, "->", n_code, data)
+
+    w_byte(n_code)
+    w_byte(a)
+    if n_code == 22: write2(b)
+    else: write4(b)
+
+  def float_const(): # 24-25
+    code, a, b, num = data
+    if type(num) is str: num = float(num)
+
+    buff = BytesIO()
+    buff.pack("<d", num)
+    num = buff.getvalue()
+    print(a, b, num)
+    1/0
+
+  def str_const(): # 26-27
+    code, reg, str = data
+    idx = str_d[str]
+    n_code = 26 if idx < 0x10000 else 27
+
+    if n_code != code: print("!!!", code, "->", n_code, data)
+
+    w_byte(n_code)
+    w_byte(reg)
+    if n_code == 26: write2(idx)
+    else: write4(idx)
+
+  def goto(): # 40-42
+    code, off = data
+    a = off - line
+    n_code = 40 if a in range(-128, 128) else 41 if a in range(-0x8000, 0x8000) else 42
+
+    if n_code != code: print("!!!", code, "->", n_code, data)
+
+    w_byte(n_code)
+    if n_code == 40: w_byte(a)
+    else:
+      w_byte(0) # pad
+      if n_code == 41: write2(a)
+      else: write4(a)
+
+  def math(): # 208-226
+    code, (a, b), c = data
+    T = code - 208 if code < 216 else code - 216
+    n_code = T + 216 if T > 7 or c in range(-128, 128) else T + 208
+
+    if n_code != code: print("!!!", code, "->", n_code, data)
+
+    if n_code < 216:
+      w_byte(n_code)
+      w_byte(b << 4 | a)
+      write2(c)
+    else:
+      write(bytes(n_code, a, b, c))
+
   def void():
     print(code)
     write(b"\0\0")
 
+  def unused():
+    exit("  ERROR: Bytecode %s unused!" % code)
+
   dispatch = (
     *(void,) * 10,
+
     byte, byte, byte, byte, # 10-13
     lambda: write(b"\x0e\0"), # 14 (return-void)
     byte, byte, byte, # 15-17
-    *(void,) * 10,
+    int_const, int_const, int_const, int_const, # 18-21
+    wide_const, wide_const, # 22-23
+    float_const, float_const, # 24-25
+    str_const, str_const, # 26-27
     byte_type, # 28
     byte, byte, # 29-30
     byte_type, # 31
-    void, void,
+
+    void,
+
+    pair, # 33
     byte_type, # 34
+
     void, void, void, void,
+
     byte, # 39
-    void, void, void, void, void,
+    goto, goto, goto, # 40-42
+
+    void, void,
+
     pair3, pair3, pair3, pair3, pair3, # 45-49
-    *(void,) * (68 - 50),
+    pair_goto, pair_goto, pair_goto, pair_goto, pair_goto, pair_goto, # 50-55
+    byte_goto, byte_goto, byte_goto, byte_goto, byte_goto, byte_goto, # 56-61
+    unused, unused, unused, unused, unused, unused, # 62-67
     *(pair3,) * 14, # 68-81
     *(pair_field,) * 14, # 82-95
+
     *(void,) * (110 - 96),
+
     ListV_method, ListV_method, ListV_method, ListV_method, ListV_method, # 110-114
-    *(void,) * (144 - 115),
+    unused, # 115
+
+    void, void, void, void, void,
+
+    unused, unused, # 121-122
+    *(pair,)  * 21, # 123-143
     *(pair3,) * 32, # 144-175
-    *(void,) * (256 - 176),
+    *(pair,)  * 32, # 176-207
+    *(math,)  * 19, # 208-226
+   *(unused,) * 23, # 227-249
+
+    void, void, void, void, void, void,
   )
-  print(len(dispatch))  
+  print("L:", len(dispatch))
 
   data = code = line = None
 
@@ -712,17 +836,19 @@ class Pooler:
 
 
 
-def DexWriter(filename, dex_classes):
+def DexWriter(dex_classes):
   Pool = Pooler()
   # Pool.addStr("string")
   # Pool.addStr("meow!")
   # Pool.addStr("текст 🗿 из 👍 суррогатных 🔥 пар 🎉")
   # Pool.addStr("woof!")
+
+  print("Сбор пулов")
   collect = Pool.collector()
   for N, classObj in enumerate(dex_classes, 1):
     name = classObj[0]
     print("%04s %s" % (N, name))
-    collect(dex_class)
+    collect(classObj)
   Pool.sorting()
   # Pool.sort_FM(class_arr)
 
@@ -904,7 +1030,8 @@ def DexWriter(filename, dex_classes):
 
   dalvikPacker = DalvikPacker(codes_b, Pool)
 
-  with open(filename, "wb") as file:
+  # with open(filename, "wb") as file:
+  with BytesIO() as file:
     Blockerson.file = file
     file = Blockerson(file) # !!! единственный Blockerson с указанным аргументом конструктора
 
@@ -980,71 +1107,9 @@ def DexWriter(filename, dex_classes):
     file.write4(Hash)
     print("adler32:", Hash)
 
+  return file.getvalue()
 
 
-
-
-ACCESS_PUBLIC       =     0x1 # class | field | method
-ACCESS_PRIVATE      =     0x2 # class | field | method
-ACCESS_PROTECTED    =     0x4 # class | field | method
-ACCESS_STATIC       =     0x8 # class | field | method
-ACCESS_FINAL        =    0x10 # class | field | method
-# ACCESS_SUPER      =    0x20 # class |  ---  |  ----
-ACCESS_SYNCHRONIZED =    0x20 #  ---  |  ---  | method
-ACCESS_VOLATILE     =    0x40 #  ---  | field |  ----
-ACCESS_BRIDGE       =    0x40 #  ---  |  ---  | method
-ACCESS_TRANSIENT    =    0x80 #  ---  | field |  ----
-ACCESS_VARARGS      =    0x80 #  ---  |  ---  | method
-ACCESS_NATIVE       =   0x100 #  ---  |  ---  | method
-ACCESS_INTERFACE    =   0x200 # class |  ---  |  ----
-ACCESS_ABSTRACT     =   0x400 # class |  ---  | method
-ACCESS_STRICT       =   0x800 #  ---  |  ---  | method
-ACCESS_SYNTHETIC    =  0x1000 # class | field | method
-ACCESS_ANNOTATION   =  0x2000 # class |  ---  |  ----
-ACCESS_ENUM         =  0x4000 # class | field |  ----
-ACCESS_UNKNOWN      =  0x8000 #  ---  |  ---  |  ----
-ACCESS_CONSTRUCTOR  = 0x10000 #  ---  |  ---  | method (только и всегда <clinit> и <init>)
-ACCESS_DECL_SYNC    = 0x20000 #  ---  |  ---  | method (работает также, как и обычный synchronized)
-
-IS_STATIC_FIELD   = 0 # static or constructor (<clinit>)
-IS_INSTANCE_FIELD = 1
-IS_DIRECT_METHOD  = 2 # static or constructor (<init>)
-IS_VIRTUAL_METHOD = 3
-
-dex_class = ('Lpbi/secured/Root;',
- ACCESS_PUBLIC,
- 'Ljava/lang/Object;',
- (), None, (),
- ((IS_INSTANCE_FIELD, 'obj:Lpbi/secured/Class1;', ACCESS_PUBLIC, None, (), None, {}),
-  (IS_DIRECT_METHOD, '<init>()V', ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
-   (2, 1, 2, 11,
-    ((112, 'Ljava/lang/Object;-><init>()V', (1,)),
-     (34, 0, 'Lpbi/secured/Class1;'),
-     (112, 'Lpbi/secured/Class1;-><init>(Lpbi/secured/Root;)V', (0, 1)),
-     (91, (0, 1), 'Lpbi/secured/Root;->obj:Lpbi/secured/Class1;'),
-     (14,)
-    ), ()), {}),
-  (IS_DIRECT_METHOD, 'checker()V', ACCESS_STATIC | ACCESS_PUBLIC, None, (),
-   (1, 0, 1, 9,
-    ((34, 0, 'Lpbi/secured/Root;'),
-     (112, 'Lpbi/secured/Root;-><init>()V', (0,)),
-     (110, 'Lpbi/secured/Root;->test()V', (0,)),
-     (14,)
-    ), ()), {}),
-  (IS_DIRECT_METHOD, 'sum(II)I', ACCESS_STATIC | ACCESS_PUBLIC, None, (),
-   (3, 2, 0, 3,
-    ((144, 0, 1, 2),
-     (144, 0, 0, 2), # для проверки, что вместо (a + b) будет действительно (a + 2b)
-     (15, 0)
-    ), ()), {}),
-  (IS_VIRTUAL_METHOD, 'test()V', ACCESS_PUBLIC, None, (),
-   (2, 1, 1, 6,
-    ((84, (0, 1), 'Lpbi/secured/Root;->obj:Lpbi/secured/Class1;'),
-     (110, 'Lpbi/secured/Class1;->test()V', (0,)),
-     (14,)
-    ), ()), {})
-  )
-)
 
 #   Поскольку я в оригинальном коде переименовал все классы с маленькой буквы на большую,
 # то здесь, ClassLoader уже будет загружать не из сгенерированного .dex файла, а из основного приложения,
@@ -1056,26 +1121,16 @@ def TypeRenamer(type):
     type = "Ltest/classes" + type[12:]
   return type
 
-DexWriter("/sdcard/Check.dex", (dex_class,))
+
+
+
+
+import test_classes # test_classes, TheGreatestBeginning, test_Wrap
+
+dexData = DexWriter((test_classes[0],))
+with open("/sdcard/Check.dex", "wb") as file:
+  file.write(dexData)
 print("ok!")
 
-def TheGreatestBeginning():
-  # dex, context смотрите в модуле common.py
-  classLoader = dex(context, "/sdcard/Check.dex")
-  root = classLoader("test.classes.Root")
-  print(root.methods()) # ЕСТЬ КОНТАКТ!!!!! ClassLoader ПОНЯЛ МЕНЯ!!!!;
-  _sum = root._mw_sum(int, int) # аналогично root.methods()["sum(II)"]
-  print(_sum)
-  print(_sum(123, 64)) # 187!!!!! ДААААААААА!!!!!!!! ПООООБЕЕЕЕЕДААААА!!!!! 🎇🎆🎇🎆🎇🎆🎇🎆
-
-  # В этой элементарной суммирующей функции вложены годы моей работы,
-  # начинающиеся ещё с далёкого 10 моего класса (весь сентябрь 2019 года был отпуск в Новороссийске),
-  # когда кроме первого полностью рабочего DexReader'а (в конце отпуска) у меня вообще ничего не было,
-  # а собственного Python-движка даже и в планах не было!!! Т.к. тогда я питон (ну и Java, раз на то пошло) толком-то не знал, как сейчас
-  # 6 лет хобби-жизни в этих 1053 строчках, пусть и много времени ушло не в данное русло, а в основном: в школу, в развлечения и в универ
-
-  # Я в курсе про существование готовых решений, как jar2dex от google, где аналоги DexReader, DexWriter, JarReader,
-  # JarWriter уже созданы (2009-2012 года, 3 года ПО МЕРКАМ ГУГЛА!) ещё когда я только познавал Паскаль с ужасающим ООП и именованием переменных... но хобби - есть хобби
-
-TheGreatestBeginning()
-# На всё про всё в runtime: 24 ms
+# TheGreatestBeginning(dexData)
+test_Wrap(dexData)
