@@ -129,7 +129,7 @@ Thread(time_test).start()
 
 ###~~~### mazers
 
-import common # adler32, sha1
+import common # adler32, sha1, dex, context
 
 
 
@@ -420,7 +420,8 @@ class Pooler:
   # добавление ресурсов в Индекс:
 
   def addType(self, Type):
-    self.addStr(Type)
+    # Type = TypeRenamer(Type)
+    # self.addStr(Type)
     self._addType(Type)
 
   def addTypeList(self, types):
@@ -490,11 +491,26 @@ class Pooler:
       full, Class, name, proto = method
       return type_d[Class], str_d[name], proto_d[proto]
 
+    # переименовывание
+
+    renamed = set()
+    renames = {}
+    add = renamed.add
+    addStr = self.addStr
+    for name in self.Types:
+      name2 = TypeRenamer(name)
+      renames[name2] = name
+      add(name2)
+      addStr(name2)
+    assert len(self.Types) == len(renamed)
+
+    # сортировка
+
     self.str_arr = sorted(self.Strs)
     self.str_d = str_d = {Str : i for i, Str in enumerate(self.str_arr)}
 
-    self.type_arr = sorted(self.Types, key = comp_type)
-    self.type_d = type_d = {Type : i for i, Type in enumerate(self.type_arr)}
+    self.type_arr = sorted(renamed, key = comp_type)
+    self.type_d = type_d = {renames[Type] : i for i, Type in enumerate(self.type_arr)}
 
     self.proto_arr = sorted(self.Protos.values(), key = comp_proto)
     self.proto_d = proto_d = {Proto[0] : i for i, Proto in enumerate(self.proto_arr)}
@@ -990,46 +1006,55 @@ ACCESS_UNKNOWN      =  0x8000 #  ---  |  ---  |  ----
 ACCESS_CONSTRUCTOR  = 0x10000 #  ---  |  ---  | method (только и всегда <clinit> и <init>)
 ACCESS_DECL_SYNC    = 0x20000 #  ---  |  ---  | method (работает также, как и обычный synchronized)
 
-IS_STATIC_FIELD   = 0 # static
+IS_STATIC_FIELD   = 0 # static or constructor (<clinit>)
 IS_INSTANCE_FIELD = 1
-IS_DIRECT_METHOD  = 2 # static or constructor
+IS_DIRECT_METHOD  = 2 # static or constructor (<init>)
 IS_VIRTUAL_METHOD = 3
 
 dex_class = ('Lpbi/secured/Root;',
  ACCESS_PUBLIC,
  'Ljava/lang/Object;',
- [],
- None,
- [],
- [(IS_INSTANCE_FIELD, 'obj:Lpbi/secured/class1;', ACCESS_PUBLIC, None, [], None, {}),
-  (IS_DIRECT_METHOD, '<init>()V', ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, [],
+ (), None, (),
+ ((IS_INSTANCE_FIELD, 'obj:Lpbi/secured/Class1;', ACCESS_PUBLIC, None, (), None, {}),
+  (IS_DIRECT_METHOD, '<init>()V', ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
    (2, 1, 2, 11,
-    {0: (112, 'Ljava/lang/Object;-><init>()V', (1,)),
-     3: (34, 0, 'Lpbi/secured/class1;'),
-     5: (112, 'Lpbi/secured/class1;-><init>(Lpbi/secured/Root;)V', (0, 1)),
-     8: (91, (0, 1), 'Lpbi/secured/Root;->obj:Lpbi/secured/class1;'),
-     10: (14,)
-    }, []), {}),
-  (IS_DIRECT_METHOD, 'checker()V', ACCESS_STATIC | ACCESS_PUBLIC, None, [],
+    ((112, 'Ljava/lang/Object;-><init>()V', (1,)),
+     (34, 0, 'Lpbi/secured/Class1;'),
+     (112, 'Lpbi/secured/Class1;-><init>(Lpbi/secured/Root;)V', (0, 1)),
+     (91, (0, 1), 'Lpbi/secured/Root;->obj:Lpbi/secured/Class1;'),
+     (14,)
+    ), ()), {}),
+  (IS_DIRECT_METHOD, 'checker()V', ACCESS_STATIC | ACCESS_PUBLIC, None, (),
    (1, 0, 1, 9,
     ((34, 0, 'Lpbi/secured/Root;'),
      (112, 'Lpbi/secured/Root;-><init>()V', (0,)),
      (110, 'Lpbi/secured/Root;->test()V', (0,)),
      (14,)
-    ), []), {}),
-  (IS_DIRECT_METHOD, 'sum(II)I', ACCESS_STATIC | ACCESS_PUBLIC, None, [],
+    ), ()), {}),
+  (IS_DIRECT_METHOD, 'sum(II)I', ACCESS_STATIC | ACCESS_PUBLIC, None, (),
    (3, 2, 0, 3,
-    {0: (144, 0, 1, 2),
-     2: (15, 0)
-    }, []), {}),
-  (IS_VIRTUAL_METHOD, 'test()V', ACCESS_PUBLIC, None, [],
+    ((144, 0, 1, 2),
+     (144, 0, 0, 2), # для проверки, что вместо (a + b) будет действительно (a + 2b)
+     (15, 0)
+    ), ()), {}),
+  (IS_VIRTUAL_METHOD, 'test()V', ACCESS_PUBLIC, None, (),
    (2, 1, 1, 6,
-    ((84, (0, 1), 'Lpbi/secured/Root;->obj:Lpbi/secured/class1;'),
-     (110, 'Lpbi/secured/class1;->test()V', (0,)),
+    ((84, (0, 1), 'Lpbi/secured/Root;->obj:Lpbi/secured/Class1;'),
+     (110, 'Lpbi/secured/Class1;->test()V', (0,)),
      (14,)
-    ), []), {})
-  ]
+    ), ()), {})
+  )
 )
+
+#   Поскольку я в оригинальном коде переименовал все классы с маленькой буквы на большую,
+# то здесь, ClassLoader уже будет загружать не из сгенерированного .dex файла, а из основного приложения,
+# т.е. эффект влияния изменений в генерированном .dex файле попусту пропадёт.
+#   TypeRenamer это явно исправляет
+
+def TypeRenamer(type):
+  if type.startswith("Lpbi/secured/"):
+    type = "Ltest/classes" + type[12:]
+  return type
 
 DexWriter("/sdcard/Check.dex", (dex_class,))
 print("ok!")
@@ -1037,7 +1062,7 @@ print("ok!")
 def TheGreatestBeginning():
   # dex, context смотрите в модуле common.py
   classLoader = dex(context, "/sdcard/Check.dex")
-  root = classLoader("pbi.secured.root") # забавный факт: я сделал класс Root с большой буквы (правило именования в Java), но его по прежнему можно загружать, с маленькой
+  root = classLoader("test.classes.Root")
   print(root.methods()) # ЕСТЬ КОНТАКТ!!!!! ClassLoader ПОНЯЛ МЕНЯ!!!!;
   _sum = root._mw_sum(int, int) # аналогично root.methods()["sum(II)"]
   print(_sum)
@@ -1048,6 +1073,9 @@ def TheGreatestBeginning():
   # когда кроме первого полностью рабочего DexReader'а (в конце отпуска) у меня вообще ничего не было,
   # а собственного Python-движка даже и в планах не было!!! Т.к. тогда я питон (ну и Java, раз на то пошло) толком-то не знал, как сейчас
   # 6 лет хобби-жизни в этих 1053 строчках, пусть и много времени ушло не в данное русло, а в основном: в школу, в развлечения и в универ
+
+  # Я в курсе про существование готовых решений, как jar2dex от google, где аналоги DexReader, DexWriter, JarReader,
+  # JarWriter уже созданы (2009-2012 года, 3 года ПО МЕРКАМ ГУГЛА!) ещё когда я только познавал Паскаль с ужасающим ООП и именованием переменных... но хобби - есть хобби
 
 TheGreatestBeginning()
 # На всё про всё в runtime: 24 ms
