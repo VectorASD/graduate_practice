@@ -330,8 +330,11 @@ public class Main {
         case 'b': {
           int l = r_int(bf);
           int[] arr = i_arr[pos] = new int[l];
+          boolean sign = false;
           for (int j = 0; j < l; j++)
-            arr[j] = r_sint(bf);
+            if ((arr[j] = r_sint(bf)) < 0)
+              sign = true;
+          idata[1][pos] = sign ? 1 : 0;
           break; }
         case 'e': {
           int l = r_int(bf);
@@ -1020,21 +1023,22 @@ public class Main {
           int[] arr = i_arr[pos];
           Base[] data1 = new Base[arr.length];
           int data_L = data1.length, sum = 0;
-          for (int i = 0; i < data_L; i++) {
-            reg = arr[i];
-            if (reg < 0) {
-              reg = ~reg;
-              Base item = regs[reg];
-              Tuple tuple = item.__tuple2();
-              sum += tuple.arr.length;
-              data1[i] = tuple;
-            } else {
-              Base item = regs[reg];
-              sum++;
-              data1[i] = item;
+          if (i1data[pos] == 1) {
+            for (int i = 0; i < data_L; i++) {
+              reg = arr[i];
+              if (reg < 0) {
+                reg = ~reg;
+                Base item = regs[reg];
+                Tuple tuple = item.__tuple2();
+                sum += tuple.arr.length;
+                data1[i] = tuple;
+              } else {
+                Base item = regs[reg];
+                sum++;
+                data1[i] = item;
+              }
             }
-          }
-          if (sum > data_L) {
+
             Base[] data2 = new Base[sum];
             int poz = 0;
             for (int i = 0; i < data_L; i++)
@@ -1046,7 +1050,11 @@ public class Main {
               } else
                 data2[poz++] = data1[i];
             data1 = data2;
-          }
+          } else
+            for (int i = 0; i < data_L; i++) {
+              reg = arr[i]; // only >= 0
+              data1[i] = regs[reg];
+            }
           regs[i0data[pos]] = new Tuple(data1);
           break; }
         case 46: { // return type(id, (v%0_args), locals())

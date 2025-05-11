@@ -135,13 +135,14 @@ import common # adler32, sha1, dex, context
 
 
 
-def DalvikPacker(codes_b, Pool):
+def DalvikAssembler(codes_b, Pool):
   # Самый настоящий ассемблер DVM-байткода
 
   w_byte = codes_b.w_byte
   write = codes_b.write
   write2 = codes_b.write2
   write4 = codes_b.write4
+  write8 = codes_b.write8
   tell = codes_b.tell
   seek = codes_b.seek
   # sleb128 = codes_b.sleb128
@@ -149,26 +150,23 @@ def DalvikPacker(codes_b, Pool):
 
   str_d    = Pool.str_d
   type_d   = Pool.type_d
+  proto_d  = Pool.proto_d
   field_d  = Pool.field_d
   method_d = Pool.method_d
 
   PackedSwitch = {}
   SparseSwitch = {}
 
-  def byte(): # 10-13, 15-17, 29-30, 39
-    w_byte(code)
-    w_byte(data[1])
+
+
+  def byte(): # 10-13, 15-17, 29-30, 39  
+    write(bytes(data)) # code, reg
 
   def byte_type(): # 28, 31, 34
-    w_byte(code)
-    w_byte(data[1])
-    write2(type_d[data[2]])
-
-  def byte_goto(): # 56-61
-    code, reg, off = data
+    code, reg, idx = data
     w_byte(code)
     w_byte(reg)
-    write2(off - line)
+    write2(type_d[idx])
 
   def pair3(): # 45-49, 68-81, 144-175
     assert len(data) == 4
@@ -179,45 +177,95 @@ def DalvikPacker(codes_b, Pool):
     w_byte(code)
     w_byte(b << 4 | a)
 
-  def pair_goto(): # 50-55
-    code, (a, b), off = data
+  def pair_type(): # 32, 35
+    code, (a, b), idx = data
     w_byte(code)
     w_byte(b << 4 | a)
-    write2(off - line)
+    write2(type_d[idx])
 
-  def pair_field(): # 82-95
-    code, (a, b), field = data
-    w_byte(code)
-    w_byte(b << 4 | a)
-    write2(field_d[field])
+  def unused(): # 62-67, 115, 121-122, 227-249
+    raise Exception("  ERROR: Bytecode %s unused!" % data)
 
-  def ListV_none(): # 252
-    w_byte(code)
-    name, regs = data
-    L = len(regs)
-    # regs += (0,) * (5 - L) долго, да и в целом - странно
-    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
-    write2(name)
-    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
-    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
 
-  def ListV_type(): # 36
-    w_byte(code)
-    name, regs = data
-    L = len(regs)
-    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
-    write2(type_d[name])
-    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
-    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
 
-  def ListV_method(): # 110-114
-    w_byte(code)
-    _, name, regs = data
-    L = len(regs)
-    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
-    write2(method_d[name])
-    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
-    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+  def nop(): # 0
+    _data = data # scope to local
+    Type = _data[1]
+    w_byte(0)
+    w_byte(Type)
+    if Type == 0: # nop
+      return
+
+    if Type == 1: # packed-switch
+      try: off = PackedSwitch[line]
+      except KeyError:
+        raise Exception("nop_packed-switch-data_error: " + str(PackedSwitch))
+      arr = _data[3]
+      write2(len(arr))
+      write4(_data[2])
+      for i in arr: write4(i - off)
+      return
+
+    if Type == 2: # sparse-switch
+      try: off = SparseSwitch[line]
+      except KeyError:
+        raise Exception("nop_sparse-switch-data_error: " + str(SparseSwitch))
+      arr = _data[2]
+      write2(len(arr))
+      keys, values = zip(*arr)
+      for i in keys: write4(i)
+      for i in values: write4(i - off)
+      return
+
+    if Type == 3:
+      _, _, sizeE, arr = _data
+      test = [1 if i < 256 else 2 if i < 0x10000 else 4 if i < 0x100000000 else 8 for i in arr]
+      n_size = sizeE # n_size = max(test)
+      if n_size != sizeE:
+        print("• new size array elements:", sizeE, "->", n_size)
+        print("  arr:", arr)
+        print("      ", test)
+      write2(n_size)
+      write4(len(arr))
+      if n_size == 1:
+        for i in arr: w_byte(i)
+        if len(arr) & 1 == 1: w_byte(0) # pad
+        return
+
+      if n_size == 2:
+        for i in arr: write2(i)
+        return
+
+      if n_size == 4:
+        for i in arr: write4(i)
+        return
+
+      if n_size == 8:
+        for i in arr: write8(i)
+
+      raise Exception("nop_len_array-data_error: %s" % sizeE)
+    raise Exception("nop_type_error: %s" % Type)
+
+  def move(): # 1-9
+    code, a, b = data
+    T1, T2 = divmod(code - 1, 3)
+    if a < 16 and b < 16: T2 = 0
+    elif a < 256: T2 = 1
+    else: T2 = 2
+
+    n_code = T2 + T1 * 3 + 1
+    if n_code != code: print("!!!", code, "->", n_code, data)
+
+    w_byte(n_code)
+    if T2 == 0:
+      w_byte(b << 4 | a)
+    elif T2 == 1:
+      w_byte(a)
+      write2(b)
+    else:
+      write2(a)
+      write2(b)
+      w_byte(0) # pad
 
   def int_const(): # 18-21
     code, a, b = data
@@ -247,15 +295,20 @@ def DalvikPacker(codes_b, Pool):
     if n_code == 22: write2(b)
     else: write4(b)
 
-  def float_const(): # 24-25
-    code, a, b, num = data
+  def long_const(): # 24-25
+    code, reg, num, _ = data
     if type(num) is str: num = float(num)
 
     buff = BytesIO()
-    buff.pack("<d", num)
+    buff.pack("<q", num)
     num = buff.getvalue()
-    print(a, b, num)
-    1/0
+    n_code = 25 if num[:6] == b"\0\0\0\0\0\0" else 24
+
+    if n_code != code: print("!!!", code, "->", n_code, data)
+
+    w_byte(code)
+    w_byte(reg)
+    write(num if n_code == 24 else num[6:])
 
   def str_const(): # 26-27
     code, reg, str = data
@@ -268,6 +321,28 @@ def DalvikPacker(codes_b, Pool):
     w_byte(reg)
     if n_code == 26: write2(idx)
     else: write4(idx)
+
+  def filled_new_array(): # 36
+    _, name, regs = data
+    L = len(regs)
+    w_byte(36)
+    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+    write2(type_d[name])
+    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+
+  def filled_new_array_range(): # 37
+    _, start, end, idx = data
+    w_byte(37)
+    w_byte(end - start + 1) # count
+    write2(type_d[idx])
+    write2(start)
+
+  def fill_array_data(): # 38
+    _, reg, off = data
+    w_byte(38)
+    w_byte(reg)
+    write4(off - line)
 
   def goto(): # 40-42
     code, off = data
@@ -283,6 +358,53 @@ def DalvikPacker(codes_b, Pool):
       if n_code == 41: write2(a)
       else: write4(a)
 
+  def switch(): # 43-44
+    code, reg, off = data
+    (PackedSwitch if code == 43 else SparseSwitch)[off] = line
+    w_byte(code)
+    w_byte(reg)
+    write4(off - line)
+
+  def pair_goto(): # 50-55
+    code, (a, b), off = data
+    w_byte(code)
+    w_byte(b << 4 | a)
+    write2(off - line)
+
+  def byte_goto(): # 56-61
+    code, reg, off = data
+    w_byte(code)
+    w_byte(reg)
+    write2(off - line)
+
+  def iget_iput(): # 82-95
+    code, (a, b), field = data
+    w_byte(code)
+    w_byte(b << 4 | a)
+    write2(field_d[field])
+
+  def sget_sput(): # 96-109
+    code, reg, field = data
+    w_byte(code)
+    w_byte(reg)
+    write2(field_d[field])
+
+  def invoke(): # 110-114
+    code, name, regs = data
+    L = len(regs)
+    w_byte(code)
+    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+    write2(method_d[name])
+    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+
+  def invoke_range(): # 116-120
+    code, start, end, idx = data
+    w_byte(code)
+    w_byte(end - start + 1) # count
+    write2(method_d[idx])
+    write2(start)
+
   def math(): # 208-226
     code, (a, b), c = data
     T = code - 208 if code < 216 else code - 216
@@ -290,79 +412,126 @@ def DalvikPacker(codes_b, Pool):
 
     if n_code != code: print("!!!", code, "->", n_code, data)
 
+    w_byte(n_code)
     if n_code < 216:
-      w_byte(n_code)
       w_byte(b << 4 | a)
       write2(c)
     else:
-      write(bytes(n_code, a, b, c))
+      w_byte(a)
+      w_byte(b)
+      w_byte(c)
 
-  def void():
-    print(code)
-    write(b"\0\0")
 
-  def unused():
-    exit("  ERROR: Bytecode %s unused!" % code)
+
+  # 250-255 команды (экзотические) до сих пор неоттестированы,
+  # да и не понадобятся они мне, т.к. я использую версию DEX с поддержкой от 4-ой версии андроида,
+  # где использование этих команд приведёт к поломке ClassLoader
+
+  def invoke_polymorphic(): # 250
+    _, (name, regs), idx = data
+    L = len(regs)
+    w_byte(250)
+    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+    write2(method_d[name])
+    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+    write2(proto_d[idx])
+
+  def invoke_polymorphic_range(): # 251
+    _, start, end, idx, idx2 = data
+    w_byte(251)
+    w_byte(end - start + 1) # count
+    write2(method_d[idx])
+    write2(start)
+    write2(proto_d[idx2])
+
+  def invoke_custom(): # 252
+    _, name, regs = data
+    L = len(regs)
+    # regs += (0,) * (5 - L) долго, да и в целом - странно
+    w_byte(252)
+    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+    write2(name) # call_site_id ???
+    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+
+  def invoke_custom_range(): # 253
+    _, start, end, name = data
+    w_byte(253)
+    w_byte(end - start + 1)
+    write2(name) # call_site_id ???
+    write2(start)
+
+  def const_method_handle(): # 254
+    _, a, b = data
+    w_byte(254)
+    w_byte(a)
+    write2(b)
+
+  def const_method_type(): # 255
+    _, a, b = data
+    w_byte(255)
+    w_byte(a)
+    write2(proto_d[b])
+
+
 
   dispatch = (
-    *(void,) * 10,
-
+    nop, # 0
+    *(move,) * 9, # 1-9
     byte, byte, byte, byte, # 10-13
     lambda: write(b"\x0e\0"), # 14 (return-void)
     byte, byte, byte, # 15-17
     int_const, int_const, int_const, int_const, # 18-21
     wide_const, wide_const, # 22-23
-    float_const, float_const, # 24-25
+    long_const, long_const, # 24-25
     str_const, str_const, # 26-27
     byte_type, # 28
     byte, byte, # 29-30
     byte_type, # 31
-
-    void,
-
+    pair_type, # 32
     pair, # 33
     byte_type, # 34
-
-    void, void, void, void,
-
+    pair_type, # 35
+    filled_new_array, # 36
+    filled_new_array_range, # 37
+    fill_array_data, # 38
     byte, # 39
     goto, goto, goto, # 40-42
-
-    void, void,
-
+    switch, switch, # 43-44
     pair3, pair3, pair3, pair3, pair3, # 45-49
     pair_goto, pair_goto, pair_goto, pair_goto, pair_goto, pair_goto, # 50-55
     byte_goto, byte_goto, byte_goto, byte_goto, byte_goto, byte_goto, # 56-61
     unused, unused, unused, unused, unused, unused, # 62-67
     *(pair3,) * 14, # 68-81
-    *(pair_field,) * 14, # 82-95
-
-    *(void,) * (110 - 96),
-
-    ListV_method, ListV_method, ListV_method, ListV_method, ListV_method, # 110-114
+    *(iget_iput,) * 14, # 82-95
+    *(sget_sput,) * 14, # 96-109
+    invoke, invoke, invoke, invoke, invoke, # 110-114
     unused, # 115
-
-    void, void, void, void, void,
-
+    invoke_range, invoke_range, invoke_range, invoke_range, invoke_range, # 116-120
     unused, unused, # 121-122
     *(pair,)  * 21, # 123-143
     *(pair3,) * 32, # 144-175
     *(pair,)  * 32, # 176-207
     *(math,)  * 19, # 208-226
    *(unused,) * 23, # 227-249
-
-    void, void, void, void, void, void,
+    invoke_polymorphic,       # 250
+    invoke_polymorphic_range, # 251
+    invoke_custom,            # 252
+    invoke_custom_range,      # 253
+    const_method_handle,      # 254
+    const_method_type,        # 255
   )
   print("L:", len(dispatch))
 
-  data = code = line = None
+  data = line = None
 
   # Самая "тяжёлая" функция! К ней особое внимание по оптимизации
   # Начиная с 1.10 версии Python, вводится match case.
   # Позже, добавлю это в грамматический файл, а также, реализую в своём компиляторе, с механикой от Java, чтобы заменить все dispatch-объекты на них
 
   def main(code_data):
-    nonlocal data, code, line
+    nonlocal data, line
 
     PackedSwitch.clear()
     SparseSwitch.clear()
@@ -379,9 +548,9 @@ def DalvikPacker(codes_b, Pool):
       assert _line & 1 == 0
 
       data = _data
-      code = _code = _data[0]
+      code = _data[0]
       line = _line >> 1
-      disp_table[_code]()
+      disp_table[code]()
 
     size = (tell() - begin) >> 1
     if size & 1: write2(0) # pad
@@ -421,6 +590,7 @@ class Blockerson:
     self.w_byte = data.writeByte
     self.write2 = data.writeShort
     self.write4 = data.writeInt
+    self.write8 = data.writeLong
     self.write  = data.write
     self.uleb128 = data.write_uleb128
     self.sleb128 = data.write_sleb128
@@ -524,7 +694,7 @@ def descExtractor(desc):
     pos += 1
 
 # print(descExtractor("(ISIDCLjava/lang/Thread;F[[[[[Landroid/widget/Toast;C[[[DZB)V"))
-# exit(0)
+# exit()
 
 
 
@@ -829,6 +999,8 @@ class Pooler:
             method, n = code_dispatch[code]
             try: method(data[n])
             except IndexError: method(data)
+          for trie in tries:
+            for Type, addr in trie[2]: addType(Type)
 
     return collect
 
@@ -843,7 +1015,7 @@ def DexWriter(dex_classes):
   # Pool.addStr("текст 🗿 из 👍 суррогатных 🔥 пар 🎉")
   # Pool.addStr("woof!")
 
-  print("Сбор пулов")
+  print("\nСбор пулов")
   collect = Pool.collector()
   for N, classObj in enumerate(dex_classes, 1):
     name = classObj[0]
@@ -961,11 +1133,7 @@ def DexWriter(dex_classes):
     write2(TL)
     write4(0) # write4(write_debug(debug))
 
-    dalvikPacker(code_data)
-
-    # Проверка вместо DalvikPacker:
-    # write4(1)
-    # codes_b.write(b"\x0e\0\0\0") # return-void + pad
+    dalvikAssembler(code_data)
 
     if not TL: return res
 
@@ -1028,7 +1196,7 @@ def DexWriter(dex_classes):
   class_b = Blockerson()
   class_data_b = Blockerson()
 
-  dalvikPacker = DalvikPacker(codes_b, Pool)
+  dalvikAssembler = DalvikAssembler(codes_b, Pool)
 
   # with open(filename, "wb") as file:
   with BytesIO() as file:
@@ -1093,7 +1261,7 @@ def DexWriter(dex_classes):
     file_size = file.size()
     file.seek(32)
     file.write4(file_size)
-    print("file_size:", file_size)
+    print("\nfile_size:", file_size)
 
     file.seek(32)
     Hash = sha1(file.file.read()).digest()
@@ -1117,8 +1285,8 @@ def DexWriter(dex_classes):
 #   TypeRenamer это явно исправляет
 
 def TypeRenamer(type):
-  if type.startswith("Lpbi/secured/"):
-    type = "Ltest/classes" + type[12:]
+  # if type.startswith("Lpbi/secured/"):
+  #   type = "Ltest/classes" + type[12:]
   return type
 
 
@@ -1127,10 +1295,14 @@ def TypeRenamer(type):
 
 import test_classes # test_classes, TheGreatestBeginning, test_Wrap
 
-dexData = DexWriter((test_classes[0],))
+dexData = DexWriter(test_classes)
 with open("/sdcard/Check.dex", "wb") as file:
   file.write(dexData)
 print("ok!")
 
+# всего 78 ms на создание dex файла с полноценным процессором моего движка + все pbi.secured.* никуда не делись
+
+
+
 # TheGreatestBeginning(dexData)
-test_Wrap(dexData)
+# test_Wrap(dexData)
