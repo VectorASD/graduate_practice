@@ -17,16 +17,29 @@ public class RegLocs {
   public Base[] regs;
   public Map<Integer, Base[]> scope;
 
-  @SuppressWarnings("unchecked")
   public RegLocs(Main env, int id, Base[] prev_regs, Map<Integer, Base[]> prev_scope) {
     this.env = env;
     this.id = id;
     state = (Object[]) env.defs[id];
     this.prev_regs = prev_regs;
 
+    common(prev_scope);
+  }
+
+  public RegLocs(RegLocs src) { // copy
+    env       = src.env;
+    id        = src.id;
+    state     = src.state;
+    prev_regs = src.prev_regs;
+
+    common(src.scope);
+  }
+
+  @SuppressWarnings("unchecked")
+  void common(Map<Integer, Base[]> prev_scope) {
     int rln_count = (int) state[0];
     Object[] args = (Object[]) state[2];
-    const_arr = (int[][]) state[10];
+    int[][] const_arr = (int[][]) state[10];
 
 
 
@@ -63,8 +76,6 @@ public class RegLocs {
   int dstar;
   int without_default;
   Map<String, Integer> arg_links;
-
-  int[][] const_arr;
 
   int regs_count;
   boolean used;

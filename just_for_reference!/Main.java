@@ -777,7 +777,13 @@ public class Main {
 
     loop:
     while (true) {
-      // printObj(id + ":" + pos + " ", regs);
+      /* if (id == 104) {
+        int count = 0;
+        for (StackTraceElement element : Thread.currentThread().getStackTrace())
+          if (element.getClassName().equals("pbi.executor.Main") && element.getMethodName().equals("method"))
+            count++;
+        printObj("(" + count + ") " + id + ":" + pos + " ", regs);
+      }*/
       try {
         switch (codes[pos]) {
         case 0: // v%0 = [None] * %1

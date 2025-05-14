@@ -12,6 +12,7 @@ public class Wrapper extends Base {
 
   Main env;
   RegLocs reg_locs;
+  boolean used = false;
 
   public Wrapper(Main env, int id) {
     this.env = env;
@@ -23,17 +24,37 @@ public class Wrapper extends Base {
     reg_locs = new RegLocs(env, id, prev.regs, prev.scope);
   }
 
+  public Wrapper(Main env, RegLocs reg_locs) { // copy
+    this.env = env;
+    this.reg_locs = new RegLocs(reg_locs);
+  }
+
   @Override public Base __call__(Base[] a_args, Map<String, Base> kw_args) throws RuntimeError {
+    if (used) // рекурсия
+      return new Wrapper(env, reg_locs).__call__(a_args, kw_args);
+    used = true;
     reg_locs.argumentor(a_args, kw_args);
-    return env.method(reg_locs);
+    Base res = env.method(reg_locs);
+    used = false;
+    return res;
   }
   @Override public Base __call__(Base... a_args) throws RuntimeError {
+    if (used) // рекурсия
+      return new Wrapper(env, reg_locs).__call__(a_args);
+    used = true;
     reg_locs.argumentor(a_args, void_map);
-    return env.method(reg_locs);
+    Base res = env.method(reg_locs);
+    used = false;
+    return res;
   }
   public Base call() throws RuntimeError {
+    if (used) // рекурсия
+      return new Wrapper(env, reg_locs).call();
+    used = true;
     reg_locs.argumentor(void_regs, void_map);
-    return env.method(reg_locs);
+    Base res = env.method(reg_locs);
+    used = false;
+    return res;
   }
 
   public int id() {
