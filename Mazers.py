@@ -1,9 +1,37 @@
 if True: # __name__ == "__main__":
   from executor import main, load_codes # пока нереализован доступный всем способ компиляции БЕЗ доступа к компилятору (облачные технологии)
   load_codes("Mazers.py")
-  n = 0
-  main(("mazers", "time-tests", "optimizer-check")[n], False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
+  n = 3
+  main(("mazers", "time-tests", "optimizer-check", "match-case-test")[n], False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
   exit()
+
+""" Два серьёзных нововведения:
+1.) Теперь QPython 3L не посылает код после разделителя "###~~~###" + пробел, что позволяет запускать этот скрипт с его 3.6.6 грамматикой, и любой грамматикой после первого разделителя
+2.) Добавил в грамматику lib2to3 (используется, как основной парсер моего компилятора) конструкцию match-case
+"""
+
+###~~~### match-case-test
+
+# тяжело было из нового PEG (python >=3.10) переписать в старый PEG (python <=3.9), поскольку пришлось серьёзно изучить сразу две мета-грамматики
+# пока в case поддерживаются только числа со знаком и без (signed_number), строки (STRING) и wildcard '_' (конфликтует с NAME, по этому там NAME с проверкой на '_')
+# ещё, добавлена поддержка or-паттерна, чтобы в одном case было несколько (NUMBER, либо '_')
+
+print("~" * 77)
+for i in range(12):
+  match i - 1:
+    case 1: print("1")
+    case 4 | 5: print("4|5")
+    case _: print("default:", i - 1)
+    case -1 | -2:
+      print("signed_number:", i - 1)
+    case 9: print("great! (9)")
+    case 20: pass # справоцирует sparse вместо packed
+# все 4 источника SyntaxError отрабатывают на ура:
+  # case _: pass # repeat wildcard
+  # case 5: pass # repeat number: 5
+  # case 7 | _: pass # repeat wildcard
+  # case 3 | 4: pass # repeat number: 4
+print("~" * 77)
 
 ###~~~### optimizer-check
 
@@ -1181,6 +1209,128 @@ def DexWriter(dex_classes):
 
     seek(end) # важно!
     return res
+
+  """
+  def write_encoded_arr(arr, file):
+    file.uleb128(len(arr))
+    for i in arr: write_enc_value(i, file)
+  def write_enc_value(value, file):
+    Type, par = value
+    if type(par) is str:
+      if par.startswith("0x"): par = int(par[2:], 16)
+      elif par.startswith("-0x"): par = -int(par[3:], 16)
+
+    if Type == 0: data = pack("<b", par)
+    elif Type == 2: data = pack("<h", par)
+    elif Type == 3: data = pack("<H", par)
+    elif Type == 4: data = pack("<l", par)
+    elif Type == 6:
+      if par in ("nan", "inf", "-inf"): par = float(par)
+      data = pack("<q", par)
+    elif Type == 16: data = pack("<f", par)
+    elif Type == 17: data = pack(">d", par)
+    elif Type == 23: data = pack("<L", Pool.str_d[par[1:-1]])
+    elif Type == 24: data = pack("<L", Pool.type_d[par])
+    elif Type == 25: data = pack("<L", Pool.field_d[par])
+    elif Type == 26: data = pack("<L", Pool.method_d[par])
+    elif Type == 27:
+      if not par.startswith(".enum "): raise wtf
+      data = pack("<L", Pool.field_d[par[6:]])
+
+    if Type < 28:
+      while len(data) > 1 and data[-1] == 0: data = data[:-1]
+      value = Type + 32 * (len(data) - 1)
+      file.w_byte(value)
+      file.write(data)
+    elif Type == 28:
+      file.w_byte(28)
+      write_encoded_arr(par, file)
+    elif Type == 29:
+      file.w_byte(29)
+      write_enc_annot2(par, file)
+    elif Type == 30: file.w_byte(30)
+    elif Type == 31: file.w_byte(31 + 32 if par else 31)
+    else:
+      print("•", Type, par)
+      raise wtf
+  """
+
+  """
+  annot_d, enc_annot_d, ref_annot_d = {}, {}, {}
+  def write_enc_annot2(annot, file):
+    Type, elements = annot
+    file.uleb128(Pool.type_d[Type])
+    file.uleb128(len(elements))
+    for TypeV, name, value in elements:
+      file.uleb128(Pool.str_d[name])
+      write_enc_value((TypeV, value), file)
+    #print("•", annot)
+  def write_enc_annot(annot):
+    print("ANNOT:", annot)
+    key = str(annot)
+    try: return enc_annot_d[key]
+    except KeyError: pass
+    enc_annot_d[key] = res = annot_b.pos()
+    visibility = annot[-1]
+    annot_b.w_byte(("build", "runtime", "system").index(visibility))
+    write_enc_annot2(annot[:-1], annot_b)
+    return res
+  def write_annotation(annots):
+    key = str(annots)
+    try: return annot_d[key]
+    except KeyError: pass
+    asb = annot_set_b
+    annot_d[key] = res = asb.pos()
+    asb.write4(len(annots))
+    for annot in annots: asb.write4(write_enc_annot(annot))
+    return res
+  def write_ref_annot(refs):
+    key = str(refs)
+    try: return ref_annot_d[key]
+    except KeyError: pass
+    asbr = annot_set_ref_b
+    ref_annot_d[key] = res = asbr.pos()
+    asbr.write4(len(refs))
+    for ref in refs: asbr.write4(write_annotation(ref))
+    return res
+  annot_dirs = {}
+  def dir_annotation(class_data):
+    adb = annot_dir_b
+    className, _, _, _, _, classAnnots, allFM = class_data
+    groups = [[], [], [], []]
+    F, M, P = [], [], []
+    for FM in allFM: groups[FM[0]].append(FM)
+    for group in groups:
+      for group_n, diff, _, _, elements, _, debug in group:
+        is_method = group_n >= 2
+        diff = className + "->" + diff
+        diffId = (Pool.method_d if is_method else Pool.field_d)[diff]
+        if elements:
+          el = (diffId, write_annotation(elements))
+          (M if is_method else F).append(el)
+        p_arr, p_arr2 = [], []
+        for Dbg in debug.values():
+          for line in Dbg:
+            if type(line) is not str: p_arr2.append(line)
+            elif line == ".end param" and p_arr2:
+              p_arr.append(p_arr2)
+              p_arr2 = []
+        if p_arr: P.append((diffId, write_ref_annot(p_arr)))
+    C = write_annotation(classAnnots) if classAnnots else 0
+    arr = [C, len(F), len(M), len(P)]
+    app = arr.append
+    for idx, ann in F: app(idx); app(ann)
+    for idx, ann in M: app(idx); app(ann)
+    for idx, ann in P: app(idx); app(ann)
+    arr = tuple(arr)
+    #print(arr)
+    try: return annot_dirs[arr]
+    except KeyError: pass
+    if len(arr) == 4 and arr[0] == 0: return 0
+    annot_dirs[arr] = pos = adb.pos()
+    for i in arr: adb.write4(i)
+    return pos
+  """
 
 
 

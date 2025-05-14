@@ -300,7 +300,7 @@ public class Main {
       default: return "n" + n + "_" + r_int(bf);
     }*/
   }
-  static void unpack(ByteBuffer bf, String struct, int[][] idata, Base[] bdata, int[][] i_arr, int[][][] i_mat, int pos, Base[] news) {
+  static void unpack(ByteBuffer bf, String struct, int[][] idata, Base[] bdata, int[][] i_arr, int[][][] i_mat, Map[] maps, int pos, Base[] news) {
     int L = struct.length();
     for (int i = 0; i < L; i++)
       switch (struct.charAt(i)) {
@@ -315,8 +315,7 @@ public class Main {
           break;
         case 'i': // int
           int num = r_sint(bf);
-          if (i < 3) idata[i][pos] = num;
-          else i_arr[pos] = new int[] { num };
+          idata[i][pos] = num;
           break;
         case 's': // news str
           bdata[pos] = r_news_s(news, bf);
@@ -335,6 +334,15 @@ public class Main {
             if ((arr[j] = r_sint(bf)) < 0)
               sign = true;
           idata[1][pos] = sign ? 1 : 0;
+          break; }
+        case 'c': {
+          int l = r_int(bf);
+          Map<Integer, Integer> map = maps[pos] = new HashMap<Integer, Integer>();
+          for (int j = 0; j < l; j++) {
+            int k = r_sint(bf);
+            int v = r_int(bf);
+            map.put(k, v);
+          }
           break; }
         case 'e': {
           int l = r_int(bf);
@@ -462,7 +470,7 @@ public class Main {
       "rr|rr|rr|rr|rrr|rrri|vrr|vri|rre|rr|" + // 60 - 69
        "rr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 70 - 79
       "rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 80 - 89
-      "rrr|rrr|rr|rra|rr|rr|rr|rr" // 90 - 97
+      "rrr|rrr|rr|rra|rr|rr|rr|rr|riai|rci" // 90 - 99
     ).split("\\|");
 
     for (int id = 0; id < defs_n; id++) {
@@ -494,17 +502,19 @@ public class Main {
       int[] i0data = new int[L];
       int[] i1data = new int[L];
       int[] i2data = new int[L];
+      int[] i3data = new int[L];
 
-      int[][] idata = new int[][] { i0data, i1data, i2data };
+      int[][] idata = new int[][] { i0data, i1data, i2data, i3data };
       Base[]  bdata = new Base[L];
       int[][]   i_arr = new int[L][];
       int[][][] i_mat = new int[L][][];
+      Map[] maps = new Map[L];
 
       for (int line = 0; line < L; line++) {
         int code = bf.get() & 255;
         //System.out.println("  " + code + " " + packs[code] + " | " + bf.position());
         codes[line] = code;
-        unpack(bf, packs[code], idata, bdata, i_arr, i_mat, line, news);
+        unpack(bf, packs[code], idata, bdata, i_arr, i_mat, maps, line, news);
       }
 
       Map<String, Integer> arg_links = new HashMap<>();
@@ -564,6 +574,7 @@ public class Main {
         i_mat,     //  8   here
         tries_to,  //  9   here
         const_arr, // 10   in RegLocs
+        maps,      // 11   here
       };
     }
 
@@ -743,17 +754,19 @@ public class Main {
 
     int pos = 0;
 
-    int size, reg = -1, len;
+    int size, reg = -1, len, value;
     Base obj, obj2;
 
     int i_data[][] = (int[][]) state[5];
     int i0data[] = i_data[0];
     int i1data[] = i_data[1];
     int i2data[] = i_data[2];
+    int i3data[] = i_data[3];
 
     Base bdata[]    = (Base[])    state[6];
     int i_arr[][]   = (int[][])   state[7];
     int i_mat[][][] = (int[][][]) state[8];
+    Map maps[]      = (Map[])     state[11];
 
     pBoolean _true = True;
     pBoolean _false = False;
@@ -1156,7 +1169,7 @@ public class Main {
           reg = i2data[pos];
           try { obj = regs[reg].__next__(); }
           catch (StopIteration e) {
-            pos += i_arr[pos][0];
+            pos += i3data[pos];
             continue loop;
           }
           regs[i0data[pos]] = obj;
@@ -1350,11 +1363,11 @@ public class Main {
           reg = i2data[pos];
           regs[i0data[pos]] = obj == regs[reg] ? _true : _false;
           break;
+
         case 92: // v%0 = not v%1   (35)
           reg = i1data[pos];
           regs[i0data[pos]] = regs[reg].__bool() ? _false : _true;
           break;
-
         case 93: { // v%0 = v%1(args)   (37)
           int[] arr = i_arr[pos];
           int arr_L = arr.length;
@@ -1385,6 +1398,23 @@ public class Main {
           reg = i1data[pos];
           regs[i0data[pos]] = regs[reg].__invert__();
           break;
+
+        case 98: // goto %2[v%0 - %1] or %3   (packed switch)
+          reg = i0data[pos];
+          value = regs[reg].__num() - i1data[pos];
+          try { pos += i_arr[pos][value]; }
+          catch (ArrayIndexOutOfBoundsException _) {
+            pos += i3data[pos];
+          }
+          continue loop;
+        case 99: // goto %1.get(v%0, %2)   (sparse switch)
+          reg = i0data[pos];
+          value = regs[reg].__num();
+          try { pos += (int) maps[pos].get(value); }
+          catch (NullPointerException e) {
+            pos += i2data[pos];
+          }
+          continue loop;
 
         default:
           throw new TypeError("• code_" + codes[pos] + " не реализован!");
