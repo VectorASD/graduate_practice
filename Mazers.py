@@ -1,65 +1,9 @@
 if True: # __name__ == "__main__":
   from executor import main, load_codes # пока нереализован доступный всем способ компиляции БЕЗ доступа к компилятору (облачные технологии)
   load_codes("Mazers.py")
-  n = 3
-  main(("mazers", "time-tests", "optimizer-check", "match-case-test")[n], False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
+  n = 0
+  main(("mazers", "time-tests")[n], False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
   exit()
-
-""" Два серьёзных нововведения:
-1.) Теперь QPython 3L не посылает код после разделителя "###~~~###" + пробел, что позволяет запускать этот скрипт с его 3.6.6 грамматикой, и любой грамматикой после первого разделителя
-2.) Добавил в грамматику lib2to3 (используется, как основной парсер моего компилятора) конструкцию match-case
-"""
-
-###~~~### match-case-test
-
-# тяжело было из нового PEG (python >=3.10) переписать в старый PEG (python <=3.9), поскольку пришлось серьёзно изучить сразу две мета-грамматики
-# пока в case поддерживаются только числа со знаком и без (signed_number), строки (STRING) и wildcard '_' (конфликтует с NAME, по этому там NAME с проверкой на '_')
-# ещё, добавлена поддержка or-паттерна, чтобы в одном case было несколько (NUMBER, либо '_')
-
-print("~" * 77)
-for i in range(12):
-  match i - 1:
-    case 1: print("1")
-    case 4 | 5: print("4|5")
-    case _: print("default:", i - 1)
-    case -1 | -2:
-      print("signed_number:", i - 1)
-    case 9: print("great! (9)")
-    case 20: pass # справоцирует sparse вместо packed
-# все 4 источника SyntaxError отрабатывают на ура:
-  # case _: pass # repeat wildcard
-  # case 5: pass # repeat number: 5
-  # case 7 | _: pass # repeat wildcard
-  # case 3 | 4: pass # repeat number: 4
-print("~" * 77)
-
-###~~~### optimizer-check
-
-"""
-def glob_func():
-  global abc
-  def abc(): return 25
-
-abc = None
-glob_func()
-print(abc())
-
-from double import DOUBLE
-from java.lang.Math import Math
-log = Math._mw_log(DOUBLE)
-LOG_2 = log(2)
-print(LOG_2)
-"""
-
-def check():
-  for i in a: pass # NameError по прежнему работает
-  a = 10
-  return a
-
-print(range(1, 25, -18)) # range-int
-print(range(0x7fffffff)) # range-int
-print(range(0x80000000)) # range
-check()
 
 ###~~~### time-tests
 
@@ -166,419 +110,360 @@ import common # adler32, sha1, dex, context
 def DalvikAssembler(codes_b, Pool):
   # Самый настоящий ассемблер DVM-байткода
 
-  w_byte = codes_b.w_byte
-  write = codes_b.write
-  write2 = codes_b.write2
-  write4 = codes_b.write4
-  write8 = codes_b.write8
-  tell = codes_b.tell
-  seek = codes_b.seek
-  # sleb128 = codes_b.sleb128
-  # uleb128 = codes_b.uleb128
-
-  str_d    = Pool.str_d
-  type_d   = Pool.type_d
-  proto_d  = Pool.proto_d
-  field_d  = Pool.field_d
-  method_d = Pool.method_d
-
-  PackedSwitch = {}
-  SparseSwitch = {}
-
-
-
-  def byte(): # 10-13, 15-17, 29-30, 39  
-    write(bytes(data)) # code, reg
-
-  def byte_type(): # 28, 31, 34
-    code, reg, idx = data
-    w_byte(code)
-    w_byte(reg)
-    write2(type_d[idx])
-
-  def pair3(): # 45-49, 68-81, 144-175
-    assert len(data) == 4
-    write(bytes(data)) # code, a, b, c
-
-  def pair(): # 33, 123-143, 176-207
-    code, a, b = data
-    w_byte(code)
-    w_byte(b << 4 | a)
-
-  def pair_type(): # 32, 35
-    code, (a, b), idx = data
-    w_byte(code)
-    w_byte(b << 4 | a)
-    write2(type_d[idx])
-
-  def unused(): # 62-67, 115, 121-122, 227-249
-    raise Exception("  ERROR: Bytecode %s unused!" % data)
-
-
-
-  def nop(): # 0
-    _data = data # scope to local
-    Type = _data[1]
-    w_byte(0)
-    w_byte(Type)
-    if Type == 0: # nop
-      return
-
-    if Type == 1: # packed-switch
-      try: off = PackedSwitch[line]
-      except KeyError:
-        raise Exception("nop_packed-switch-data_error: " + str(PackedSwitch))
-      arr = _data[3]
-      write2(len(arr))
-      write4(_data[2])
-      for i in arr: write4(i - off)
-      return
-
-    if Type == 2: # sparse-switch
-      try: off = SparseSwitch[line]
-      except KeyError:
-        raise Exception("nop_sparse-switch-data_error: " + str(SparseSwitch))
-      arr = _data[2]
-      write2(len(arr))
-      keys, values = zip(*arr)
-      for i in keys: write4(i)
-      for i in values: write4(i - off)
-      return
-
-    if Type == 3:
-      _, _, sizeE, arr = _data
-      test = [1 if i < 256 else 2 if i < 0x10000 else 4 if i < 0x100000000 else 8 for i in arr]
-      n_size = sizeE # n_size = max(test)
-      if n_size != sizeE:
-        print("• new size array elements:", sizeE, "->", n_size)
-        print("  arr:", arr)
-        print("      ", test)
-      write2(n_size)
-      write4(len(arr))
-      if n_size == 1:
-        for i in arr: w_byte(i)
-        if len(arr) & 1 == 1: w_byte(0) # pad
-        return
-
-      if n_size == 2:
-        for i in arr: write2(i)
-        return
-
-      if n_size == 4:
-        for i in arr: write4(i)
-        return
-
-      if n_size == 8:
-        for i in arr: write8(i)
-
-      raise Exception("nop_len_array-data_error: %s" % sizeE)
-    raise Exception("nop_type_error: %s" % Type)
-
-  def move(): # 1-9
-    code, a, b = data
-    T1, T2 = divmod(code - 1, 3)
-    if a < 16 and b < 16: T2 = 0
-    elif a < 256: T2 = 1
-    else: T2 = 2
-
-    n_code = T2 + T1 * 3 + 1
-    if n_code != code: print("!!!", code, "->", n_code, data)
-
-    w_byte(n_code)
-    if T2 == 0:
-      w_byte(b << 4 | a)
-    elif T2 == 1:
-      w_byte(a)
-      write2(b)
-    else:
-      write2(a)
-      write2(b)
-      w_byte(0) # pad
-
-  def int_const(): # 18-21
-    code, a, b = data
-    if a in range(16) and b in range(-8, 8): n_code = 18
-    elif b in range(-0x8000, 0x8000): n_code = 19
-    elif b & 0xffff == 0: n_code = 21
-    else: n_code = 20
-
-    if n_code != code: print("!!!", code, "->", n_code, data)
-
-    w_byte(n_code)
-    if n_code == 18: w_byte(b << 4 | a)
-    else:
-      w_byte(a)
-      if n_code == 19: write2(b)
-      elif n_code == 20: write4(b)
-      else: write2(b >> 16)
-
-  def wide_const(): # 22-23
-    code, a, b = data
-    n_code = 22 if b in range(-0x8000, 0x8000) else 23
-
-    if n_code != code: print("!!!", code, "->", n_code, data)
-
-    w_byte(n_code)
-    w_byte(a)
-    if n_code == 22: write2(b)
-    else: write4(b)
-
-  def long_const(): # 24-25
-    code, reg, num, _ = data
-    if type(num) is str: num = float(num)
-
-    buff = BytesIO()
-    buff.pack("<q", num)
-    num = buff.getvalue()
-    n_code = 25 if num[:6] == b"\0\0\0\0\0\0" else 24
-
-    if n_code != code: print("!!!", code, "->", n_code, data)
-
-    w_byte(code)
-    w_byte(reg)
-    write(num if n_code == 24 else num[6:])
-
-  def str_const(): # 26-27
-    code, reg, str = data
-    idx = str_d[str]
-    n_code = 26 if idx < 0x10000 else 27
-
-    if n_code != code: print("!!!", code, "->", n_code, data)
-
-    w_byte(n_code)
-    w_byte(reg)
-    if n_code == 26: write2(idx)
-    else: write4(idx)
-
-  def filled_new_array(): # 36
-    _, name, regs = data
-    L = len(regs)
-    w_byte(36)
-    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
-    write2(type_d[name])
-    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
-    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
-
-  def filled_new_array_range(): # 37
-    _, start, end, idx = data
-    w_byte(37)
-    w_byte(end - start + 1) # count
-    write2(type_d[idx])
-    write2(start)
-
-  def fill_array_data(): # 38
-    _, reg, off = data
-    w_byte(38)
-    w_byte(reg)
-    write4(off - line)
-
-  def goto(): # 40-42
-    code, off = data
-    a = off - line
-    n_code = 40 if a in range(-128, 128) else 41 if a in range(-0x8000, 0x8000) else 42
-
-    if n_code != code: print("!!!", code, "->", n_code, data)
-
-    w_byte(n_code)
-    if n_code == 40: w_byte(a)
-    else:
-      w_byte(0) # pad
-      if n_code == 41: write2(a)
-      else: write4(a)
-
-  def switch(): # 43-44
-    code, reg, off = data
-    (PackedSwitch if code == 43 else SparseSwitch)[off] = line
-    w_byte(code)
-    w_byte(reg)
-    write4(off - line)
-
-  def pair_goto(): # 50-55
-    code, (a, b), off = data
-    w_byte(code)
-    w_byte(b << 4 | a)
-    write2(off - line)
-
-  def byte_goto(): # 56-61
-    code, reg, off = data
-    w_byte(code)
-    w_byte(reg)
-    write2(off - line)
-
-  def iget_iput(): # 82-95
-    code, (a, b), field = data
-    w_byte(code)
-    w_byte(b << 4 | a)
-    write2(field_d[field])
-
-  def sget_sput(): # 96-109
-    code, reg, field = data
-    w_byte(code)
-    w_byte(reg)
-    write2(field_d[field])
-
-  def invoke(): # 110-114
-    code, name, regs = data
-    L = len(regs)
-    w_byte(code)
-    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
-    write2(method_d[name])
-    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
-    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
-
-  def invoke_range(): # 116-120
-    code, start, end, idx = data
-    w_byte(code)
-    w_byte(end - start + 1) # count
-    write2(method_d[idx])
-    write2(start)
-
-  def math(): # 208-226
-    code, (a, b), c = data
-    T = code - 208 if code < 216 else code - 216
-    n_code = T + 216 if T > 7 or c in range(-128, 128) else T + 208
-
-    if n_code != code: print("!!!", code, "->", n_code, data)
-
-    w_byte(n_code)
-    if n_code < 216:
-      w_byte(b << 4 | a)
-      write2(c)
-    else:
-      w_byte(a)
-      w_byte(b)
-      w_byte(c)
-
-
-
-  # 250-255 команды (экзотические) до сих пор неоттестированы,
-  # да и не понадобятся они мне, т.к. я использую версию DEX с поддержкой от 4-ой версии андроида,
-  # где использование этих команд приведёт к поломке ClassLoader
-
-  def invoke_polymorphic(): # 250
-    _, (name, regs), idx = data
-    L = len(regs)
-    w_byte(250)
-    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
-    write2(method_d[name])
-    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
-    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
-    write2(proto_d[idx])
-
-  def invoke_polymorphic_range(): # 251
-    _, start, end, idx, idx2 = data
-    w_byte(251)
-    w_byte(end - start + 1) # count
-    write2(method_d[idx])
-    write2(start)
-    write2(proto_d[idx2])
-
-  def invoke_custom(): # 252
-    _, name, regs = data
-    L = len(regs)
-    # regs += (0,) * (5 - L) долго, да и в целом - странно
-    w_byte(252)
-    w_byte(L << 4 | regs[4] if L > 4 else L << 4)
-    write2(name) # call_site_id ???
-    w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
-    w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
-
-  def invoke_custom_range(): # 253
-    _, start, end, name = data
-    w_byte(253)
-    w_byte(end - start + 1)
-    write2(name) # call_site_id ???
-    write2(start)
-
-  def const_method_handle(): # 254
-    _, a, b = data
-    w_byte(254)
-    w_byte(a)
-    write2(b)
-
-  def const_method_type(): # 255
-    _, a, b = data
-    w_byte(255)
-    w_byte(a)
-    write2(proto_d[b])
-
-
-
-  dispatch = (
-    nop, # 0
-    *(move,) * 9, # 1-9
-    byte, byte, byte, byte, # 10-13
-    lambda: write(b"\x0e\0"), # 14 (return-void)
-    byte, byte, byte, # 15-17
-    int_const, int_const, int_const, int_const, # 18-21
-    wide_const, wide_const, # 22-23
-    long_const, long_const, # 24-25
-    str_const, str_const, # 26-27
-    byte_type, # 28
-    byte, byte, # 29-30
-    byte_type, # 31
-    pair_type, # 32
-    pair, # 33
-    byte_type, # 34
-    pair_type, # 35
-    filled_new_array, # 36
-    filled_new_array_range, # 37
-    fill_array_data, # 38
-    byte, # 39
-    goto, goto, goto, # 40-42
-    switch, switch, # 43-44
-    pair3, pair3, pair3, pair3, pair3, # 45-49
-    pair_goto, pair_goto, pair_goto, pair_goto, pair_goto, pair_goto, # 50-55
-    byte_goto, byte_goto, byte_goto, byte_goto, byte_goto, byte_goto, # 56-61
-    unused, unused, unused, unused, unused, unused, # 62-67
-    *(pair3,) * 14, # 68-81
-    *(iget_iput,) * 14, # 82-95
-    *(sget_sput,) * 14, # 96-109
-    invoke, invoke, invoke, invoke, invoke, # 110-114
-    unused, # 115
-    invoke_range, invoke_range, invoke_range, invoke_range, invoke_range, # 116-120
-    unused, unused, # 121-122
-    *(pair,)  * 21, # 123-143
-    *(pair3,) * 32, # 144-175
-    *(pair,)  * 32, # 176-207
-    *(math,)  * 19, # 208-226
-   *(unused,) * 23, # 227-249
-    invoke_polymorphic,       # 250
-    invoke_polymorphic_range, # 251
-    invoke_custom,            # 252
-    invoke_custom_range,      # 253
-    const_method_handle,      # 254
-    const_method_type,        # 255
-  )
-  print("L:", len(dispatch))
-
-  data = line = None
-
   # Самая "тяжёлая" функция! К ней особое внимание по оптимизации
-  # Начиная с 1.10 версии Python, вводится match case.
-  # Позже, добавлю это в грамматический файл, а также, реализую в своём компиляторе, с механикой от Java, чтобы заменить все dispatch-объекты на них
+  # Начиная с 1.10 версии Python, вводится match-case.
+  # Позже (уже), добавлю это в грамматический файл, а также, реализую в своём компиляторе, с механикой от Java, чтобы заменить все dispatch-объекты на них
 
   def main(code_data):
-    nonlocal data, line
+    w_byte = codes_b.w_byte
+    write  = codes_b.write
+    write2 = codes_b.write2
+    write4 = codes_b.write4
+    write8 = codes_b.write8
+    tell   = codes_b.tell
+    seek   = codes_b.seek
 
-    PackedSwitch.clear()
-    SparseSwitch.clear()
+    str_d    = Pool.str_d
+    type_d   = Pool.type_d
+    proto_d  = Pool.proto_d
+    field_d  = Pool.field_d
+    method_d = Pool.method_d
+
+    # codes_b и Pool дальше явно не используются
+
+    PackedSwitch = {}
+    SparseSwitch = {}
 
     seek(4, 1) # пока неизвестен размер кода
     begin = tell()
 
     if type(code_data) is dict:
       code_data = code_data.values()
-    disp_table = dispatch
 
-    for _data in code_data:
-      _line = tell() - begin
-      assert _line & 1 == 0
+    for data in code_data:
+      line = tell() - begin
+      assert line & 1 == 0
+      line >>= 1
 
-      data = _data
-      code = _data[0]
-      line = _line >> 1
-      disp_table[code]()
+      code = data[0]
+
+      # Добавил поддержку токена '..' со всеми исправлениями конфликтов с вещественными числами
+      # т.е., ещё и токенайзер пришлось изучать, хотя, казалось, он должен быть гораздо сложнее (вся основная работа в одной регулярке)
+      # Раньше я не представлял, что такое SyntaxError: bad input... Теперь очень даже представляю (ошибка токенайзера: не удалось распознать ТИП токена)
+      # Правильнее сказать, bad input - это тип токена, который недопустим после типа предущего токена (например, 2 числа подряд - нельзя)
+
+      match code:
+        case 10..13 | 15..17 | 29..30 | 39: # byte
+          write(bytes(data)) # code, reg
+        case 28 | 31 | 34: # byte_type
+          w_byte(code)
+          w_byte(data[1]) # reg
+          write2(type_d[data[2]]) # type
+        case 45..49 | 68..81 | 144..175: # pair3
+          # assert len(data) == 4
+          write(bytes(data)) # code, a, b, c
+        case 33 | 123..143 | 176..207: # pair
+          w_byte(code)
+          w_byte(data[2] << 4 | data[1]) # pair
+        case 32 | 35: # pair_type
+          pair = data[1]
+          w_byte(code)
+          w_byte(pair[1] << 4 | pair[0])
+          write2(type_d[data[2]]) # type
+        # case 62..67 | 115 | 121..122 | 227..249: # unused
+        case _:
+          raise Exception("  ERROR: Bytecode %s unused!" % data)
+
+
+
+        case 0: # nop
+          Type = data[1]
+          w_byte(0)
+          w_byte(Type)
+          match Type:
+            case 0: continue # nop
+            case 1: # packed-switch
+              try: off = PackedSwitch[line]
+              except KeyError:
+                raise Exception("nop_packed-switch-data_error: " + str(PackedSwitch))
+              arr = data[3]
+              write2(len(arr))
+              write4(data[2])
+              for i in arr: write4(i - off)
+
+            case 2: # sparse-switch
+              try: off = SparseSwitch[line]
+              except KeyError:
+                raise Exception("nop_sparse-switch-data_error: " + str(SparseSwitch))
+              arr = data[2]
+              write2(len(arr))
+              keys, values = zip(*arr)
+              for i in keys: write4(i)
+              for i in values: write4(i - off)
+
+            case 3: # array
+              arr = data[3]
+              # n_size = max(1 if i < 256 else 2 if i < 0x10000 else 4 if i < 0x100000000 else 8 for i in arr)
+              # sizeE = data[2]
+              # if n_size != sizeE:
+              #   print("• new size array elements:", sizeE, "->", n_size)
+              #   print("  arr:", arr)
+              #   print("      ", n_size)
+              n_size = data[2]
+
+              write2(n_size)
+              write4(len(arr))
+
+              match n_size:
+                case 1:
+                  for i in arr: w_byte(i)
+                  if len(arr) & 1 == 1: w_byte(0) # pad
+                case 2:
+                  for i in arr: write2(i)
+                case 4:
+                  for i in arr: write4(i)
+                case 8:
+                  for i in arr: write8(i)
+                case _:
+                  raise Exception("nop_len_array-data_error: %s" % n_size)
+
+            case _:
+              raise Exception("nop_type_error: %s" % Type)
+
+        case 1..9: # move
+          a = data[1]
+          b = data[2]
+          T1, T2 = divmod(code - 1, 3)
+          if a < 16 and b < 16: T2 = 0
+          elif a < 256: T2 = 1
+          else: T2 = 2
+
+          n_code = T2 + T1 * 3 + 1
+          if n_code != code: print("!!!", code, "->", n_code, data)
+
+          w_byte(n_code)
+          if T2 == 0:
+            w_byte(b << 4 | a)
+          elif T2 == 1:
+            w_byte(a)
+            write2(b)
+          else:
+            write2(a)
+            write2(b)
+            w_byte(0) # pad
+
+        case 14: # return-void
+          write(b"\x0e\0")
+
+        case 18..21: # int_const
+          a = data[1]
+          b = data[2]
+          if a in range(16) and b in range(-8, 8): n_code = 18
+          elif b in range(-0x8000, 0x8000): n_code = 19
+          elif b & 0xffff == 0: n_code = 21
+          else: n_code = 20
+
+          if n_code != code: print("!!!", code, "->", n_code, data)
+
+          w_byte(n_code)
+          if n_code == 18: w_byte(b << 4 | a)
+          else:
+            w_byte(a)
+            if n_code == 19: write2(b)
+            elif n_code == 20: write4(b)
+            else: write2(b >> 16)
+
+        case 22..23: # wide_const
+          a = data[1]
+          b = data[2]
+          n_code = 22 if b in range(-0x8000, 0x8000) else 23
+
+          if n_code != code: print("!!!", code, "->", n_code, data)
+
+          w_byte(n_code)
+          w_byte(a)
+          if n_code == 22: write2(b)
+          else: write4(b)
+
+        case 24..25: # long_const
+          reg = data[1]
+          num = data[2]
+          if type(num) is str: num = float(num)
+
+          buff = BytesIO()
+          buff.pack("<q", num)
+          num = buff.getvalue()
+          n_code = 25 if num[:6] == b"\0\0\0\0\0\0" else 24
+
+          if n_code != code: print("!!!", code, "->", n_code, data)
+
+          w_byte(code)
+          w_byte(reg)
+          write(num if n_code == 24 else num[6:])
+
+        case 26..27: # str_const
+          _str = data[2]
+          idx = str_d[_str]
+          n_code = 26 if idx < 0x10000 else 27
+
+          if n_code != code: print("!!!", code, "->", n_code, data)
+
+          w_byte(n_code)
+          w_byte(data[1]) # reg
+          if n_code == 26: write2(idx)
+          else: write4(idx)
+
+        case 36: # filled_new_array
+          regs = data[2]
+          L = len(regs)
+          w_byte(36)
+          w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+          write2(type_d[data[1]])
+          w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+          w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+
+        case 37: # filled_new_array_range
+          start = data[1]
+          w_byte(37)
+          w_byte(data[2] - start + 1) # count
+          write2(type_d[data[3]])
+          write2(start)
+
+        case 38: # fill_array_data
+          w_byte(38)
+          w_byte(data[1]) # reg
+          write4(data[2] - line) # off
+
+        case 40..42: # goto
+          a = data[1] - line # off
+          n_code = 40 if a in range(-128, 128) else 41 if a in range(-0x8000, 0x8000) else 42
+
+          if n_code != code: print("!!!", code, "->", n_code, data)
+
+          w_byte(n_code)
+          if n_code == 40: w_byte(a)
+          else:
+            w_byte(0) # pad
+            if n_code == 41: write2(a)
+            else: write4(a)
+
+        case 43..44: # switch
+          off = data[2]
+          (PackedSwitch if code == 43 else SparseSwitch)[off] = line
+          w_byte(code)
+          w_byte(data[1]) # reg
+          write4(off - line)
+
+        case 50..55: # pair_goto
+          pair = data[1]
+          w_byte(code)
+          w_byte(pair[1] << 4 | pair[0])
+          write2(data[2] - line) # off
+
+        case 56..61: # byte_goto
+          w_byte(code)
+          w_byte(data[1]) # reg
+          write2(data[2] - line) # off
+
+        case 82..95: # iget_iput
+          pair = data[1]
+          w_byte(code)
+          w_byte(pair[1] << 4 | pair[0])
+          write2(field_d[data[2]]) # field
+
+        case 96..109: # sget_sput
+          w_byte(code)
+          w_byte(data[1]) # reg
+          write2(field_d[data[2]]) # data
+
+        case 110..114: # invoke
+          regs = data[2]
+          L = len(regs)
+          w_byte(code)
+          w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+          write2(method_d[data[1]]) # method
+          w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+          w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+
+        case 116..120: # invoke_range
+          start = data[1]
+          w_byte(code)
+          w_byte(data[2] - start + 1) # count
+          write2(method_d[data[3]]) # method
+          write2(start)
+
+        case 208..226: # math
+          pair = data[1]
+          c = data[2]
+          T = code - 208 if code < 216 else code - 216
+          n_code = T + 216 if T > 7 or c in range(-128, 128) else T + 208
+
+          if n_code != code: print("!!!", code, "->", n_code, data)
+
+          w_byte(n_code)
+          if n_code < 216:
+            w_byte(pair[1] << 4 | pair[0])
+            write2(c)
+          else:
+            w_byte(pair[0])
+            w_byte(pair[1])
+            w_byte(c)
+
+
+
+        # 250-255 команды (экзотические) до сих пор неоттестированы,
+        # да и не понадобятся они мне, т.к. я использую версию DEX с поддержкой от 4-ой версии андроида,
+        # где использование этих команд приведёт к поломке ClassLoader
+
+        case 250: # invoke_polymorphic
+          _, (name, regs), idx = data
+          L = len(regs)
+          w_byte(250)
+          w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+          write2(method_d[name])
+          w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+          w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+          write2(proto_d[idx])
+
+        case 251: # invoke_polymorphic_range
+          _, start, end, idx, idx2 = data
+          w_byte(251)
+          w_byte(end - start + 1) # count
+          write2(method_d[idx])
+          write2(start)
+          write2(proto_d[idx2])
+
+        case 252: # invoke_custom
+          _, name, regs = data
+          L = len(regs)
+          # regs += (0,) * (5 - L) долго, да и в целом - странно
+          w_byte(252)
+          w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+          write2(name) # call_site_id ???
+          w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+          w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+
+        case 253: # invoke_custom_range
+          _, start, end, name = data
+          w_byte(253)
+          w_byte(end - start + 1)
+          write2(name) # call_site_id ???
+          write2(start)
+
+        case 254: # const_method_handle
+          _, a, b = data
+          w_byte(254)
+          w_byte(a)
+          write2(b)
+
+        case 255: # const_method_type
+          _, a, b = data
+          w_byte(255)
+          w_byte(a)
+          write2(proto_d[b])
+
+        #case _: # old
+         # disp_table[code]()
 
     size = (tell() - begin) >> 1
     if size & 1: write2(0) # pad
@@ -837,7 +722,7 @@ class Pooler:
     self.proto_arr = sorted(self.Protos.values(), key = comp_proto)
     self.proto_d = proto_d = {Proto[0] : i for i, Proto in enumerate(self.proto_arr)}
     self.proto_check = [(shorty, "(" + ''.join(desc) + ")" + extype) for full, shorty, desc, extype in self.proto_arr]
-    
+
     self.field_arr = sorted(self.Fields.values(), key = comp_field)
     self.field_d = {Field[0] : i for i, Field in enumerate(self.field_arr)}
 
@@ -942,25 +827,20 @@ class Pooler:
 
     # encoded values
 
-    def disp_27(value):
-      assert value.startswith(".enum "), "EncodedValue 27 с неправильным началом"
-      addField(value[6:])
-    def disp_28(value):
-      for TypeV, value in value: encodedValue(TypeV, value)
-    dispatch = (
-      *(lambda value: None,) * 23, # 0 - 22
-      lambda value: addStr(value[1:-1]), # 23
-      lambda value: addType(value), # 24
-      lambda value: addField(value), # 25
-      lambda value: addMethod(value), # 26
-      disp_27, # 27
-      disp_28, # 28
-      collectAnnot, # 29
-      *(lambda value: None,) * 2, # 30 - 31
-    )
-
     def encodedValue(TypeV, value):
-      dispatch[TypeV](value)
+      match TypeV:
+        case 23: addStr(value[1:-1])
+        case 24: addType(value)
+        case 25: addField(value)
+        case 26: addMethod(value)
+        case 27:
+          assert value.startswith(".enum "), "EncodedValue 27 с неправильным началом"
+          addField(value[6:])
+        case 28:
+          for TypeV, value in value:
+            encodedValue(TypeV, value)
+        case 29:
+          collectAnnot(value)
 
     # code values
 
@@ -970,37 +850,6 @@ class Pooler:
     addProto = self.addProto
     addField = self.addField
     addMethod = self.addMethod
-
-    def code_250(data):
-      addMethod(data[0][0])
-      addProto(data[2])
-    def code_251(data):
-      addMethod(data[3])
-      addProto(data[4])
-
-    code_dispatch = {
-      26: (addStr, 2),
-      27: (addStr, 2),
-      28: (addType, 2),
-      31: (addType, 2),
-      32: (addType, 2),
-      34: (addType, 2),
-      35: (addType, 2),
-      36: (addType, 1),
-      37: (addType, 3),
-      250: (code_250, 100),
-      251: (code_251, 100),
-      255: (addProto, 2),
-    }
-    for i in range(82, 110): code_dispatch[i] = (addField, 2)
-    for i in range(110, 115): code_dispatch[i] = (addMethod, 1)
-    for i in range(116, 121): code_dispatch[i] = (addMethod, 3)
-
-    plug = (lambda _: None, 0)
-    code_dispatch = tuple(
-      code_dispatch[i] if i in code_dispatch else plug
-      for i in range(256)
-    ) # dict to tuple для ускорения, а также, для исключения потребности обработки KeyError
 
     # main collector
 
@@ -1021,12 +870,26 @@ class Pooler:
         for element in elements: collectAnnot(element)
         if codeObj is not None:
           registers, ins, outs, insns, code_data, tries = codeObj
+
           if type(code_data) is dict: code_data = code_data.values()
           for data in code_data:
-            code = data[0]              
-            method, n = code_dispatch[code]
-            try: method(data[n])
-            except IndexError: method(data)
+            match data[0]:
+              case 26..27:               addStr(data[2])
+              case 28 | 31..32 | 34..35: addType(data[2])
+              case 36:       addType(data[1])
+              case 37:       addType(data[3])
+              case 82..109:  addField(data[2])
+              case 110..114: addMethod(data[1])
+              case 116..120: addMethod(data[3])
+              case 250:
+                addMethod(data[0][0])
+                addProto(data[2])
+              case 251:
+                addMethod(data[3])
+                addProto(data[4])
+              case 255:      addProto(data[2])
+              case _ | 121..249: continue # искусствено переключил sparse в packed
+
           for trie in tries:
             for Type, addr in trie[2]: addType(Type)
 
