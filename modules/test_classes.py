@@ -30,12 +30,38 @@ IS_VIRTUAL_METHOD = 3
 
 
 
+"""
+Искусственно внедрил кодированнык значения (encoded values) во Wrap-класс:
+
+.field static private check1:B = 10
+.field static private check2:S = 3456
+.field static private check3:I = 0x7f000000
+.field static private check4:J = 0x7f00000012345678L
+.field static private check5:F = 1e16f
+.field static private check6:D = 1e250d
+.field static private check7:Z = true
+.field static private check8:C = 'у'
+.field static private check9:Ljava/lang/String; = "Это строка! 👍🔨"
+"""
+
 wrap_class = ('Lpbi/secured/Wrap;',
  ACCESS_PUBLIC,
  'Ljava/lang/Object;',
  # (), "GreatSource.java", (), # всё равно будет Unknown Source пишет в traceBack, как если бы я просто оставил None здесь
  (), None, (),
- ((IS_INSTANCE_FIELD, 'data:J', ACCESS_PRIVATE, None, (), None, {}),
+ (
+
+  (IS_STATIC_FIELD, 'check1:B', ACCESS_STATIC | ACCESS_PRIVATE, (0, '0xa'), (), None, {}),
+  (IS_STATIC_FIELD, 'check2:S', ACCESS_STATIC | ACCESS_PRIVATE, (2, '0xd80'), (), None, {}),
+  (IS_STATIC_FIELD, 'check3:I', ACCESS_STATIC | ACCESS_PRIVATE, (4, '0x7f000000'), (), None, {}),
+  (IS_STATIC_FIELD, 'check4:J', ACCESS_STATIC | ACCESS_PRIVATE, (6, '0x7f00000012345678'), (), None, {}),
+  (IS_STATIC_FIELD, 'check5:F', ACCESS_STATIC | ACCESS_PRIVATE, (16, 1e16), (), None, {}),
+  (IS_STATIC_FIELD, 'check6:D', ACCESS_STATIC | ACCESS_PRIVATE, (17, 1e250), (), None, {}),
+  (IS_STATIC_FIELD, 'check7:Z', ACCESS_STATIC | ACCESS_PRIVATE, (31, True), (), None, {}),
+  (IS_STATIC_FIELD, 'check8:C', ACCESS_STATIC | ACCESS_PRIVATE, (3, '0x443'), (), None, {}),
+  (IS_STATIC_FIELD, 'check9:Ljava/lang/String;', ACCESS_STATIC | ACCESS_PRIVATE, (23, '"Это строка! 👍🔨"'), (), None, {}),
+
+  (IS_INSTANCE_FIELD, 'data:J', ACCESS_PRIVATE, None, (), None, {}),
   (IS_INSTANCE_FIELD, 'mul:J', ACCESS_PRIVATE, None, (), None, {}),
   (IS_INSTANCE_FIELD, 'orig:J', ACCESS_PRIVATE, None, (), None, {}),
   (IS_INSTANCE_FIELD, 'shift:J', ACCESS_PRIVATE, None, (), None, {}),
@@ -1981,7 +2007,7 @@ def test_Wrap(dexData):
   def check(num):
     fields = inst.fields()
 
-    assert len(fields) == 4
+    # assert len(fields) == 4
     shift = fields["shift"]
     mul   = fields["mul"]
     data  = fields["data"]

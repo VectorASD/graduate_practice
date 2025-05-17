@@ -494,7 +494,7 @@ Mark0 = Mark(0)
 class Blockerson:
   file = None
   insts = []
-  Map = [(0, 1, 0)]
+  Map = [(0, 1, 0)] # Заголовок
   map_d = {0: (1, 0)}
 
   def __init__(self, data = None):
@@ -922,8 +922,9 @@ def DexWriter(dex_classes):
 
   def write_map(Map, map_d):
     file.seek(0, 2)
+    file.write(b"\0" * (-file.tell() % 4))
     mapO = file.tell()
-    Map.append((0x1000, 1, mapO))
+    Map.append((0x1000, 1, mapO)) # Карта
     map_d[0x1000] = 1, mapO
     count = len(None for _, size, _ in Map if size)
     file.write4(count)
@@ -943,9 +944,9 @@ def DexWriter(dex_classes):
       className, accessF, superName, interfaces, sourceStr, classAnnots, allFM = classObj
       print("%4s %s" % (N, className))
 
-      class_idx, static_fields, groups = write_class_data(className, allFM)
+      class_idx, groups = write_class_data(className, allFM)
       annot_idx = dir_annotation(className, classAnnots, groups)
-      values_idx = Mark0 # write_values(static_fields)
+      values_idx = write_values(groups)
 
       write4(type_d[className])
       write4(accessF)
@@ -993,18 +994,20 @@ def DexWriter(dex_classes):
       for FM in group:
         for i in FM: uleb128(i)
 
-    static_fields = tuple(res_g[0])
-    return res, static_fields, groups
+    return res, groups
 
   static_values_d = {}
-  def write_values(static_fields):
-    if not static_fields: return 0
+  def write_values(groups): # encoded values для полей
+    static_fields = groups[0]
+    if not static_fields: return Mark0
 
-    values = tuple(field[4] for field in static_fields)
+    values = tuple(field[3] for field in static_fields if field[3] is not None)
+    if not values: return Mark0
+
     try: return static_values_d[values]
     except KeyError: pass
     static_values_d[values] = pos = value_b.pos()
-    # write_encoded_arr(values, value_b)
+    write_encoded_arr(values, value_b)
     return pos
 
   def write_codes(codeObj, debug):
@@ -1089,22 +1092,24 @@ def DexWriter(dex_classes):
       elif par.startswith("-0x"): par = -int(par[3:], 16)
 
     match Type:
-      case 0: data = pack("<b", par)
-      case 2: data = pack("<h", par)
-      case 3: data = pack("<H", par)
-      case 4: data = pack("<l", par)
+      case 0: data = pack("<b", par) # VALUE_BYTE
+      case 2: data = pack("<h", par) # VALUE_SHORT
+      case 3: data = pack("<H", par) # VALUE_CHAR
+      case 4: data = pack("<l", par) # VALUE_INT
       case 6:
         if par in ("nan", "inf", "-inf"): par = float(par)
-        data = pack("<q", par)
-      case 16: data = pack("<f", par)
-      case 17: data = pack(">d", par)
-      case 23: data = pack("<L", Pool.str_d[par[1:-1]])
-      case 24: data = pack("<L", Pool.type_d[par])
-      case 25: data = pack("<L", Pool.field_d[par])
-      case 26: data = pack("<L", Pool.method_d[par])
+        data = pack("<q", par)                          # VALUE_LONG
+      case 16: data = pack("<f", par)                   # VALUE_FLOAT
+      case 17: data = pack("<d", par)                   # VALUE_DOUBLE
+      case 21: data = pack("<L", Pool.proto_d[par])     # VALUE_METHOD_TYPE
+      case 22: 1/0 # у меня нет class_site'ов           # VALUE_METHOD_HANDLE
+      case 23: data = pack("<L", Pool.str_d[par[1:-1]]) # VALUE_STRING
+      case 24: data = pack("<L", Pool.type_d[par])      # VALUE_TYPE
+      case 25: data = pack("<L", Pool.field_d[par])     # VALUE_FIELD
+      case 26: data = pack("<L", Pool.method_d[par])    # VALUE_METHOD
       case 27:
         assert par.startswith(".enum ")
-        data = pack("<L", Pool.field_d[par[6:]])
+        data = pack("<L", Pool.field_d[par[6:]])        # VALUE_ENUM
 
     match Type:
       case 0..27:
@@ -1115,12 +1120,12 @@ def DexWriter(dex_classes):
         file.write(data)
       case 28:
         file.w_byte(28)
-        write_encoded_arr(par, file)
+        write_encoded_arr(par, file)               # VALUE_ARRAY
       case 29:
         file.w_byte(29)
-        write_enc_annot2(par, file)
-      case 30: file.w_byte(30)
-      case 31: file.w_byte(31 + 32 if par else 31)
+        write_enc_annot2(par, file)                # VALUE_ANNOTATION
+      case 30: file.w_byte(30)                     # VALUE_NULL
+      case 31: file.w_byte(31 + 32 if par else 31) # VALUE_BOOLEAN
       case _:
         raise ValueError("type not defined: %s %s" % (Type, par))
 
@@ -1236,6 +1241,8 @@ def DexWriter(dex_classes):
 
   dalvikAssembler = DalvikAssembler(codes_b, Pool)
 
+  write_annotation(())
+
   # with open(filename, "wb") as file:
   with BytesIO() as file:
     Blockerson.file = file
@@ -1252,28 +1259,29 @@ def DexWriter(dex_classes):
     file.write4(7 * 16)
     file.write(b"\x78\x56\x34\x12") # little-endian
     file.seek(4 * 17, 1)
-    Pool.str_b.apply(4, 1, 4)
-    Pool.type_b.apply(4, 2, 4)
-    Pool.proto_b.apply(4, 3, 12)
-    Pool.field_b.apply(4, 4, 8)
-    Pool.method_b.apply(4, 5, 8)
+    Pool.str_b.apply(4, 1, 4) # Строки
+    Pool.type_b.apply(4, 2, 4) # Типы
+    Pool.proto_b.apply(4, 3, 12) # Прототипы
+    Pool.field_b.apply(4, 4, 8) # Наполнители
+    Pool.method_b.apply(4, 5, 8) # Методы
 
     write_classes()
 
-    class_b.apply(4, 6, 32)
+    class_b.apply(4, 6, 32) # Классы
 
-    codes_b.apply(4, 0x2001)
-    debug_b.apply(1, 0x2003)
-    Pool.type_list_b.apply(4, 0x1001)
-    Pool.str_data_b.apply(2, 0x2002)
+    Pool.str_data_b. apply(2, 0x2002) # Данные строк
+    Pool.type_list_b.apply(4, 0x1001) # Список типов
 
-    annot_b.apply(1, 0x2004)
-    class_data_b.apply(1, 0x2000) # не может стоять до codes_b.apply
-    value_b.apply(1, 0x2005)
+    value_b.apply(1, 0x2005) # Массив encoded
 
-    annot_set_b.apply(4, 0x1003)
-    annot_set_ref_b.apply(4, 0x1002)
-    annot_dir_b.apply(4, 0x2006)
+    annot_b.        apply(1, 0x2004) # Аннотации
+    annot_set_b.    apply(4, 0x1003) # Аннотации set
+    annot_set_ref_b.apply(4, 0x1002) # Аннотации set ref
+    annot_dir_b.    apply(4, 0x2006) # Дирректория аннотаций
+
+    codes_b.apply(4, 0x2001) # Коды
+    class_data_b.apply(1, 0x2000) # Данные классов   Не может стоять до codes_b.apply
+    debug_b.apply(1, 0x2003) # Информация отладки
 
     Blockerson.final()
     Map = Blockerson.Map
@@ -1288,8 +1296,8 @@ def DexWriter(dex_classes):
     fieldIS,  fieldIO  = map_d.get(4, (0, 0))
     methodIS, methodIO = map_d.get(5, (0, 0))
     classDefsIS, classDefsIO = map_d.get(6, (0, 0))
-    _,        dataIO   = map_d.get(7, (0, 0))
 
+    dataIO = classDefsIO + classDefsIS * 32
     dataIS = file.tell() - dataIO
 
     file.seek(44)
@@ -1323,9 +1331,14 @@ def DexWriter(dex_classes):
 #   TypeRenamer это явно исправляет
 
 def TypeRenamer(type):
-  # if type.startswith("Lpbi/secured/"):
-  #   type = "Ltest/classes" + type[12:]
-  return type
+  idx = type.index("L")
+  if idx == -1: return type
+  a = type[:idx]
+  type = type[idx:]
+
+  if type.startswith("Lpbi/secured/"):
+    type = "Ltest/classes" + type[12:]
+  return a + type
 
 
 
@@ -1338,9 +1351,7 @@ with open("/sdcard/Check.dex", "wb") as file:
   file.write(dexData)
 print("ok!")
 
-# всего 78 ms на создание dex файла с полноценным процессором моего движка + все pbi.secured.* никуда не делись
-
 
 
 # TheGreatestBeginning(dexData)
-# test_Wrap(dexData)
+test_Wrap(dexData)

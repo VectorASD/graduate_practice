@@ -68,11 +68,6 @@ public class Main {
       new UnicodeEscapeIgnorer('А', 'Я'),
       UnicodeEscaper.outsideOf(32, 0x7f)
     );
-    /*String str = "lol";
-    for (int i = 0; i < 10; i++) {
-      System.out.println(str);
-      str = escapePython(str);
-    }*/
   }
   public static final String escapeJava(final String input) {
     return ESCAPE_JAVA.translate(input);
@@ -273,8 +268,6 @@ public class Main {
     boolean is_int = (L & 1) == 0;
     if (is_int) return b.__tostr();
     return b;
-    //System.out.println("• '" + str + "'");
-    //return str;
   }
   static int r_none(ByteBuffer bf) {
     return r_int(bf) - 1;
@@ -475,7 +468,6 @@ public class Main {
     ).split("\\|");
 
     for (int id = 0; id < defs_n; id++) {
-      //System.out.print(id + " | " + bf.position());
       int namez = r_int(bf);
       int rln_count = r_int(bf);
       int loc_args = r_int(bf);
@@ -495,7 +487,6 @@ public class Main {
       int star = r_none(bf);
       int dstar = r_none(bf);
 
-      //System.out.println(" .. " + bf.position());
       L = r_int(bf);
 
       int[] codes = new int[L];
@@ -513,7 +504,6 @@ public class Main {
 
       for (int line = 0; line < L; line++) {
         int code = bf.get() & 255;
-        //System.out.println("  " + code + " " + packs[code] + " | " + bf.position());
         codes[line] = code;
         unpack(bf, packs[code], idata, bdata, i_arr, i_mat, maps, line, news);
       }

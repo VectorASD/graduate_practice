@@ -108,14 +108,29 @@ def dex(ctx, dexAssertPath):
 """
 
 def dex(ctx, dexData):
+  # with open("/sdcard/_orig.dex", "rb") as file: dexData = file.read()
+
   CL = getClassLoader.wrap(ctx)().cast(ClassLoader)
   dexPath = jFile(getDir.wrap(ctx)("dex", MODE_PRIVATE), "name.dex")._m_getAbsolutePath()
   dexOutputDir = getDir.wrap(ctx)("outdex", MODE_PRIVATE)._m_getAbsolutePath()
 
   with open(dexPath, "wb") as file: file.write(dexData)
 
-  classes = DexClassLoader(dexPath, dexOutputDir, str, CL)
-  return loadClass.wrap(classes)
+  classLoader = DexClassLoader(dexPath, dexOutputDir, str, CL)
+  wrappedLoadClass = loadClass.wrap(classLoader)
+
+  def _loadClass(name):
+    try: result = wrappedLoadClass(name)
+    except InvocationTargetError as e:
+      # e - InvocationTargetExpection
+      # e.cause - ClassNotFoundException
+      # e.cause.source.suppressed - (IOExpection,) Ошибка системного DexReader'а или Dex-валидатора здесь
+      # print(e.cause.suppressed[0].args[0])
+      print(e.cause.args[0])
+      exit()
+    return result
+
+  return _loadClass
 
 
 
