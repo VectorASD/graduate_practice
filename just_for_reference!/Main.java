@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.zip.InflaterInputStream;
 import pbi.executor.PyThread;
+import pbi.executor.backwards.Struct;
 import pbi.executor.exceptions.*;
 import pbi.executor.io.BytesIO;
 import pbi.executor.types.*;
@@ -698,6 +699,7 @@ public class Main {
     Ellipsis,
     PyAssertionError.type,   // AssertionError
     FuT.getattr("clear", FuI),
+    Struct.type,
   };
   static String[] pool_arr = MainPoolArr.pool_arr;
 

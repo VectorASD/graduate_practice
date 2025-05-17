@@ -16,6 +16,7 @@ def time_test():
   data = tuple((0, "5") for i in range(100000))
   td_sum = td2_sum = count = 0
   td_min = td2_min = float("inf")
+
   while True:
     check = (lambda value: None,)
     T = time()
@@ -83,6 +84,8 @@ def time_test():
     """
 
     # report()    # 0.02821 vs 0.02129 (почти обогнал функции оригинального питона)
+
+    report()
 
     # print(100000 / td, 100000 / td2)
 
@@ -940,8 +943,8 @@ def DexWriter(dex_classes):
       className, accessF, superName, interfaces, sourceStr, classAnnots, allFM = classObj
       print("%4s %s" % (N, className))
 
-      annot_idx = Mark0 # dir_annotation(class_data)
-      class_idx, static_fields = write_class_data(className, allFM)
+      class_idx, static_fields, groups = write_class_data(className, allFM)
+      annot_idx = dir_annotation(className, classAnnots, groups)
       values_idx = Mark0 # write_values(static_fields)
 
       write4(type_d[className])
@@ -979,7 +982,8 @@ def DexWriter(dex_classes):
         else: res_append((delta, accessFM))
         pred_id = nameId
 
-    if sum(map(len, res_g)) == 0: return 0, ()
+    if sum(map(len, res_g)) == 0:
+      return 0, (), groups
 
     res = class_data_b.pos2()
     uleb128 = class_data_b.uleb128_h
@@ -990,7 +994,7 @@ def DexWriter(dex_classes):
         for i in FM: uleb128(i)
 
     static_fields = tuple(res_g[0])
-    return res, static_fields
+    return res, static_fields, groups
 
   static_values_d = {}
   def write_values(static_fields):
@@ -1073,7 +1077,8 @@ def DexWriter(dex_classes):
     seek(end) # важно!
     return res
 
-  """
+  pack = struct.pack
+
   def write_encoded_arr(arr, file):
     file.uleb128(len(arr))
     for i in arr: write_enc_value(i, file)
@@ -1083,117 +1088,137 @@ def DexWriter(dex_classes):
       if par.startswith("0x"): par = int(par[2:], 16)
       elif par.startswith("-0x"): par = -int(par[3:], 16)
 
-    if Type == 0: data = pack("<b", par)
-    elif Type == 2: data = pack("<h", par)
-    elif Type == 3: data = pack("<H", par)
-    elif Type == 4: data = pack("<l", par)
-    elif Type == 6:
-      if par in ("nan", "inf", "-inf"): par = float(par)
-      data = pack("<q", par)
-    elif Type == 16: data = pack("<f", par)
-    elif Type == 17: data = pack(">d", par)
-    elif Type == 23: data = pack("<L", Pool.str_d[par[1:-1]])
-    elif Type == 24: data = pack("<L", Pool.type_d[par])
-    elif Type == 25: data = pack("<L", Pool.field_d[par])
-    elif Type == 26: data = pack("<L", Pool.method_d[par])
-    elif Type == 27:
-      if not par.startswith(".enum "): raise wtf
-      data = pack("<L", Pool.field_d[par[6:]])
+    match Type:
+      case 0: data = pack("<b", par)
+      case 2: data = pack("<h", par)
+      case 3: data = pack("<H", par)
+      case 4: data = pack("<l", par)
+      case 6:
+        if par in ("nan", "inf", "-inf"): par = float(par)
+        data = pack("<q", par)
+      case 16: data = pack("<f", par)
+      case 17: data = pack(">d", par)
+      case 23: data = pack("<L", Pool.str_d[par[1:-1]])
+      case 24: data = pack("<L", Pool.type_d[par])
+      case 25: data = pack("<L", Pool.field_d[par])
+      case 26: data = pack("<L", Pool.method_d[par])
+      case 27:
+        assert par.startswith(".enum ")
+        data = pack("<L", Pool.field_d[par[6:]])
 
-    if Type < 28:
-      while len(data) > 1 and data[-1] == 0: data = data[:-1]
-      value = Type + 32 * (len(data) - 1)
-      file.w_byte(value)
-      file.write(data)
-    elif Type == 28:
-      file.w_byte(28)
-      write_encoded_arr(par, file)
-    elif Type == 29:
-      file.w_byte(29)
-      write_enc_annot2(par, file)
-    elif Type == 30: file.w_byte(30)
-    elif Type == 31: file.w_byte(31 + 32 if par else 31)
-    else:
-      print("•", Type, par)
-      raise wtf
-  """
+    match Type:
+      case 0..27:
+        while len(data) > 1 and data[-1] == 0: data = data[:-1]
+        # print("DATA:", Type, data, len(data), par)
+        value = Type | (len(data) - 1) << 5
+        file.w_byte(value)
+        file.write(data)
+      case 28:
+        file.w_byte(28)
+        write_encoded_arr(par, file)
+      case 29:
+        file.w_byte(29)
+        write_enc_annot2(par, file)
+      case 30: file.w_byte(30)
+      case 31: file.w_byte(31 + 32 if par else 31)
+      case _:
+        raise ValueError("type not defined: %s %s" % (Type, par))
 
-  """
   annot_d, enc_annot_d, ref_annot_d = {}, {}, {}
   def write_enc_annot2(annot, file):
     Type, elements = annot
     file.uleb128(Pool.type_d[Type])
     file.uleb128(len(elements))
+    str_d = Pool.str_d
     for TypeV, name, value in elements:
-      file.uleb128(Pool.str_d[name])
+      file.uleb128(str_d[name])
       write_enc_value((TypeV, value), file)
-    #print("•", annot)
   def write_enc_annot(annot):
-    print("ANNOT:", annot)
-    key = str(annot)
-    try: return enc_annot_d[key]
+    try: return enc_annot_d[annot]
     except KeyError: pass
-    enc_annot_d[key] = res = annot_b.pos()
+
+    enc_annot_d[annot] = res = annot_b.pos()
     visibility = annot[-1]
     annot_b.w_byte(("build", "runtime", "system").index(visibility))
     write_enc_annot2(annot[:-1], annot_b)
     return res
   def write_annotation(annots):
-    key = str(annots)
-    try: return annot_d[key]
+    try: return annot_d[annots]
     except KeyError: pass
-    asb = annot_set_b
-    annot_d[key] = res = asb.pos()
-    asb.write4(len(annots))
-    for annot in annots: asb.write4(write_enc_annot(annot))
+
+    annot_d[annots] = res = annot_set_b.pos()
+    annot_set_b.write4(len(annots))
+    mark = annot_set_b.writeMark
+    for annot in annots: mark(write_enc_annot(annot))
     return res
-  def write_ref_annot(refs):
-    key = str(refs)
-    try: return ref_annot_d[key]
+  def write_ref_annot(refs): # только для debug params
+    try: return ref_annot_d[refs]
     except KeyError: pass
     asbr = annot_set_ref_b
-    ref_annot_d[key] = res = asbr.pos()
+    ref_annot_d[refs] = res = asbr.pos()
     asbr.write4(len(refs))
     for ref in refs: asbr.write4(write_annotation(ref))
     return res
+
   annot_dirs = {}
-  def dir_annotation(class_data):
-    adb = annot_dir_b
-    className, _, _, _, _, classAnnots, allFM = class_data
-    groups = [[], [], [], []]
-    F, M, P = [], [], []
-    for FM in allFM: groups[FM[0]].append(FM)
+  def dir_annotation(className, classAnnots, groups):
+    F, M, P = [], [], [] # fields, methods, params
+    method_d = Pool.method_d
+    field_d = Pool.field_d
+
     for group in groups:
       for group_n, diff, _, _, elements, _, debug in group:
+        # fields and methods
         is_method = group_n >= 2
         diff = className + "->" + diff
-        diffId = (Pool.method_d if is_method else Pool.field_d)[diff]
+        diffId = (method_d if is_method else field_d)[diff]
+
         if elements:
-          el = (diffId, write_annotation(elements))
-          (M if is_method else F).append(el)
-        p_arr, p_arr2 = [], []
-        for Dbg in debug.values():
-          for line in Dbg:
-            if type(line) is not str: p_arr2.append(line)
-            elif line == ".end param" and p_arr2:
-              p_arr.append(p_arr2)
-              p_arr2 = []
-        if p_arr: P.append((diffId, write_ref_annot(p_arr)))
-    C = write_annotation(classAnnots) if classAnnots else 0
-    arr = [C, len(F), len(M), len(P)]
-    app = arr.append
-    for idx, ann in F: app(idx); app(ann)
-    for idx, ann in M: app(idx); app(ann)
-    for idx, ann in P: app(idx); app(ann)
-    arr = tuple(arr)
-    #print(arr)
-    try: return annot_dirs[arr]
+          item = (diffId, write_annotation(elements))
+          (M if is_method else F).append(item)
+
+        # params (не имеет значения, т.к. я всё равно не собираюсь создавать отладочную информацию для генерированного кода)
+        if debug:
+          p_arr = []
+          p_arr2 = []
+          for Dbg in debug.values(): # что-то небезопасное из старого кода...
+            for line in Dbg:
+              if type(line) is not str:
+                p_arr2.append(line)
+              elif line == ".end param" and p_arr2:
+                p_arr.append(p_arr2)
+                p_arr2 = []
+          if p_arr:
+            item = (diffId, write_ref_annot(p_arr))
+            P.append(item)
+
+    C = write_annotation(classAnnots) if classAnnots else Mark0
+
+    if C == Mark0 and not (F or M or P):
+      return Mark0
+
+    F = tuple(F)
+    M = tuple(M)
+    P = tuple(P)
+    key = C, F, M, P
+
+    try: return annot_dirs[key]
     except KeyError: pass
-    if len(arr) == 4 and arr[0] == 0: return 0
-    annot_dirs[arr] = pos = adb.pos()
-    for i in arr: adb.write4(i)
+
+    write4 = annot_dir_b.write4
+    mark   = annot_dir_b.writeMark
+
+    annot_dirs[key] = pos = annot_dir_b.pos()
+
+    mark(C)
+    write4(len(F))
+    write4(len(M))
+    write4(len(P))
+    for idx, ann in F: write4(idx); mark(ann)
+    for idx, ann in M: write4(idx); mark(ann)
+    for idx, ann in P: write4(idx); mark(ann)
+
     return pos
-  """
 
 
 
