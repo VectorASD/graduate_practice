@@ -1623,14 +1623,23 @@ public class Main {
         new String(r_str(r_int(bf), bf, -1), StandardCharsets.UTF_8)
       };
 
-    HashMap<Integer, int[][]> map = new HashMap<>();
+    HashMap<Integer, ArrayList<int[]>> map = new HashMap<>();
     int defs = r_int(bf);
     for (int i = 0; i < defs; i++) {
       int id = r_int(bf);
-      int arrL = r_int(bf);
+      int debugL = r_int(bf);
+      /*int arrL = r_int(bf);
       int[][] arr = new int[arrL][];
       for (int j = 0; j < arrL; j++)
-        arr[j] = new int[] { r_int(bf), r_int(bf), r_int(bf) };
+        arr[j] = new int[] { r_int(bf), r_int(bf), r_int(bf) };*/
+      ArrayList<int[]> arr = new ArrayList<>();
+      for (int j = 0; j < debugL; j++) {
+        int[] marker = new int[] { r_int(bf), r_int(bf), r_int(bf) };
+        // только сейчас через код заметил, что по памяти теперь повторов маркеров в массиве не будет, только указателей на них
+        int n = r_int(bf);
+        for (int k = 0; k < n; k++)
+          arr.add(marker);
+      }
       map.put(id, arr);
     }
 
