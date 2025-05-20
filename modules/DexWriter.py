@@ -174,7 +174,8 @@ def DalvikAssembler(codes_b, Pool):
           elif b & 0xffff == 0: n_code = 21
           else: n_code = 20
 
-          if n_code != code: print("!!!", code, "->", n_code, data)
+          if (code, n_code) != (18, 19):
+            if n_code != code: print("!!!", code, "->", n_code, data)
 
           w_byte(n_code)
           if n_code == 18: w_byte(b << 4 | a)

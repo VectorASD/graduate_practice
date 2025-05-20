@@ -455,7 +455,7 @@ public class Main {
     defs = new Object[defs_n];
 
     String[] packs = (
-      "rr|rrr|r|r|rri|rr|rrr|ri|rr|i|" + // 0 - 9
+      "rr|rir|r|r|rri|rr|rri|ri|rr|i|" + // 0 - 9
       "rd|rv|vr|r|rr|rr|rr|rr|rr|rr|" +  // 10 - 19
       "rr|rr|rr|rr|rr|rr|rr|rr|rr|rr|" + // 20 - 29
       "rr|rr|rr|rr|rr|r|rrr|ra|rrs|r|" + // 30 - 39

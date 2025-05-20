@@ -15,3 +15,18 @@ print(type(1234) is int, type(1234) is tuple)
 print(2 in (1, 2, 3), 127 in (1, 2, 3))
 
 print("Пора добавить оставшиеся типы констант:\nстрока", b"bytes", None, True, False)
+
+ListZero = []
+ListOne = [1]
+List = [1, 2, 3]
+List[0] = List[-1] * 5
+print(ListZero, ListOne, List)
+a, b, c = List # 15, 2, 3
+Tuple = a, b, b, c, b, a, c
+print(Tuple)
+
+print(Tuple[2:-1])
+List[1:2] = (4, 5, 6)
+print(List) # 15, 4, 5, 6, 3
+List[-2:-5:-1] = (7, 8, 9)
+print(List) # 15, 9, 8, 7, 3
