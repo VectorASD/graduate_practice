@@ -39,6 +39,7 @@ def DVM_name(class_name):
 BaseType = "Lpbi/executor/types/Base;"
 BaseArrType = "[" + BaseType
 NoneType = "Lpbi/executor/types/NoneType;"
+BooleanType = "Lpbi/executor/types/pBoolean;"
 BigIntType = "Lpbi/executor/types/BigInt;"
 TupleType = "Lpbi/executor/types/Tuple;"
 NameErrorType = "Lpbi/executor/exceptions/NameError;"
@@ -50,6 +51,8 @@ VoidArrField = "->void_arr:" + BaseArrType
 VoidMapField = "->void_map:Ljava/util/Map;"
 BuiltinsField = "%s->builtins_arr:%s" % (CoreType, BaseArrType)
 NoneField = "%s->None:%s" % (CoreType, NoneType)
+TrueField = "%s->True:%s" % (CoreType, BooleanType)
+FalseField = "%s->False:%s" % (CoreType, BooleanType)
 
 CallerMethod = "%s->__call__(%sLjava/util/Map;)%s" % (BaseType, BaseArrType, BaseType)
 TupleCtor = "%s-><init>(%s)V" % (TupleType, BaseArrType)
@@ -61,8 +64,14 @@ NameErrorCtor = NameErrorType + "-><init>(Ljava/lang/String;)V"
 maths = ("__add__", "__sub__", "__mul__", "__matmul__", "__truediv__", "__mod__", "__and__", "__or__", "__xor__", "__lshift__", "__rshift__", "__pow__", "__floordiv__", "__lt", "__gt", "__eq", "__ge", "__le", "__ne")
 unars = ("__pos__", "__neg__", "__invert__")
 
+BinaryMethods = tuple('%s->%s(%s)%s' % (BaseType, operation, BaseType, BaseType) for operation in maths)
+UnaryMethods = tuple('%s->%s()%s' % (BaseType, operation, BaseType) for operation in unars)
+ContainsMethod = "%s->__contains__(%s)%s" % (BaseType, BaseType, BooleanType)
+
+
+
 def builder(ClassName, inputs, py_codes, local_consts):
-  registers = 6
+  registers = 5
   outsSize = 3 # пока не разобрался, как ЭТО правильно считать...
 
   p0 = registers - inputs # экземпляр pbi.eval.Main
@@ -101,16 +110,18 @@ def builder(ClassName, inputs, py_codes, local_consts):
       (39, 1), # throw v1
     ))
 
-  def get_reg(reg, py_reg):
+  def get_reg(reg, py_reg, tmp = None):
     try:
       const = local_consts[py_reg]
       field_name = "%s->c%s:%s" % (ClassName, const, BaseType)
+      if tmp is not None: append((18, tmp, py_reg)) # const v{tmp} = {py_reg}
       append((98, reg, field_name)) # sget-object v{reg}, {...}
       return
     except KeyError: pass
+    if tmp is None: tmp = reg
     extend((
-      (18, reg, py_reg), # const v{reg} = v{py_reg}
-      (70, reg, 0, reg), # aget-object v{reg} = v0[v{reg}]
+      (18, tmp, py_reg), # const v{tmp} = {py_reg}
+      (70, reg, 0, tmp), # aget-object v{reg} = v0[v{tmp}]
     ))
     reg_is_null(reg, py_reg)
 
@@ -124,30 +135,136 @@ def builder(ClassName, inputs, py_codes, local_consts):
 
   for line in py_codes:
     match line[0]:
+      # 0..13
+
+      case 14..32: # v%0 {maths}= v%1
+        code, in1, in2 = line
+        get_reg(1, in1, 3) # const v3 = {in1}, v1 = regs[v3] (Левый операнд)
+        get_reg(2, in2) # const v2 = regs[in2] (Правый операнд)
+        extend((
+          (110, BinaryMethods[code - 14], (1, 2)), # invoke-virtual {v1, v2}, Lpbi/executor/types/Base;->__add__(Lpbi/executor/types/Base;)Lpbi/executor/types/Base;
+          (12, 1), # move-result-object v1
+          (18, 2, out), # const v2 = {out}
+          (77, 1, 0, 3), # aput-object v0[v3] = v1
+        ))
+
+      case 33: # v%0 = v%0 in v%1
+        get_reg(1, line[1], 3) # const v3 = {line[1]}, v1 = regs[v3]
+        get_reg(2, line[2]) # const v2 = regs[line[2]]
+        extend((
+          (110, ContainsMethod, (2, 1)), # invoke-virtual {v2, v1}, Lpbi/executor/types/Base;->__contains__(Lpbi/executor/types/Base;)Lpbi/executor/types/pBoolean;
+          (12, 1), # move-result-object v1
+          (18, 2, line[1]), # const v2 = {line[1]}
+          (77, 1, 0, 3), # aput-object v0[v3] = v1
+        ))
+
+      case 34: # v%0 = v%0 is v%1
+        get_reg(1, line[1], 3) # const v3 = line[1], v1 = regs[v3]
+        get_reg(2, line[2]) # const v2 = regs[line[2]]
+        extend((
+          (51, (1, 2), 5), # if-ne v1, v2, :{+5 * 2 bytes}   4+4+2=10
+          (98, 2, TrueField), # sget-object v2, Lpbi/executor/Main;->True:Lpbi/executor/types/pBoolean;
+          (40, 3), # goto :{+3 * 2 bytes}   2+4=6
+          (98, 2, FalseField), # sget-object v2, Lpbi/executor/Main;->False:Lpbi/executor/types/pBoolean;
+          (77, 2, 0, 3), # aput-object v0[v3] = v2
+        ))
+
+      # 35 реализовано внутри 92
+
+      # 36
+
+      # 37 реализовано внутри 93
+
+      # 38..42
+
       case 43: # return
         extend((
           (98, 0, NoneField), # sget-object v0, Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;
           (17, 0), # return-object v0
         ))
 
+      # 44..50
+
+      case 51..53: # v%0 = {unars}v%0
+        code, inout = line
+        get_reg(1, inout, 3) # const v3 = {inout}, v1 = regs[v3] (Правый операнд)
+        extend((
+          (110, UnaryMethods[code - 51], (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__neg__()Lpbi/executor/types/Base;
+          (12, 1), # move-result-object v1
+          (18, 2, out), # const v2 = {out}
+          (77, 1, 0, 3), # aput-object v0[v3] = v1
+        ))
+
+      # 54..59
+
       case 60: # v%0 = reg v%1
         append((18, 1, line[1])) # const v1 = {line[1]}
         get_reg(2, line[2]) # const v2 = regs[line[2]]
         append((77, 2, 0, 1)) # aput-object v0[v1] = v2
 
+      # 61..70
+
       case 71..89: # v%0 = v%1 {maths} v%2   (14..32)
-        print("math:", line, maths[line[0] - 71])
+        code, out, in1, in2 = line
+        # print("math:", line, maths[code - 71])
+        get_reg(1, in1) # const v1 = regs[in1] (Левый операнд)
+        get_reg(2, in2) # const v2 = regs[in2] (Правый операнд)
+        extend((
+          (110, BinaryMethods[code - 71], (1, 2)), # invoke-virtual {v1, v2}, Lpbi/executor/types/Base;->__add__(Lpbi/executor/types/Base;)Lpbi/executor/types/Base;
+          (12, 1), # move-result-object v1
+          (18, 2, out), # const v2 = {out}
+          (77, 1, 0, 2), # aput-object v0[v2] = v1
+        ))
 
       case 90: # v%0 = v%1 in v%2   (33)
-        print("in:", line)
+        get_reg(1, line[2]) # const v1 = regs[line[2]]
+        get_reg(2, line[3]) # const v2 = regs[line[3]]
+        extend((
+          (110, ContainsMethod, (2, 1)), # invoke-virtual {v2, v1}, Lpbi/executor/types/Base;->__contains__(Lpbi/executor/types/Base;)Lpbi/executor/types/pBoolean;
+          (12, 1), # move-result-object v1
+          (18, 2, line[1]), # const v2 = {line[1]}
+          (77, 1, 0, 2), # aput-object v0[v2] = v1
+        ))
 
       case 91: # v%0 = v%1 is v%2   (34)
-        print("is:", line)
+        get_reg(1, line[2]) # const v1 = regs[line[2]]
+        get_reg(2, line[3]) # const v2 = regs[line[3]]
+        extend((
+          (51, (1, 2), 5), # if-ne v1, v2, :{+5 * 2 bytes}   4+4+2=10
+          (98, 1, TrueField), # sget-object v1, Lpbi/executor/Main;->True:Lpbi/executor/types/pBoolean;
+          (40, 3), # goto :{+3 * 2 bytes}   2+4=6
+          (98, 1, FalseField), # sget-object v1, Lpbi/executor/Main;->False:Lpbi/executor/types/pBoolean;
+          (18, 2, line[1]), # const v2 = {line[1]}
+          (77, 1, 0, 2), # aput-object v0[v2] = v1
+        ))
 
-      case 93: # v%0 = v%1(%2_args)   (37)
-        out = line[1]
-        _in = line[2]
-        args = line[3]
+      case 35 | 92:
+        # 35: v%0 = not v%0
+        # 92: v%0 = not v%1   (35)
+        inout = line[0] == 35
+        if inout: get_reg(1, line[1], 3) # const v3 = {line[1]}, v1 = regs[v3]
+        else: get_reg(1, line[2]) # const v1 = regs[line[2]]
+        extend((
+          (110, 'Lpbi/executor/types/Base;->__bool()Z', (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__bool()Z
+          (10, 1), # move-result v1
+          (56, 1, 5), # if-eqz v1, :{+5 * 2 bytes}   4+4+2=10
+          (98, 1, FalseField), # sget-object v1, Lpbi/executor/Main;->False:Lpbi/executor/types/pBoolean;
+          (40, 3), # goto :{+3 * 2 bytes}   2+4=6
+          (98, 1, TrueField), # sget-object v1, Lpbi/executor/Main;->True:Lpbi/executor/types/pBoolean;
+          (18, 2, line[1]), # const v2 = {line[1]}
+          (77, 1, 0, 3 if inout else 2), # aput-object v0[v2|v3] = v1
+        ))
+
+      case 37 | 93:
+        # 37: v%0 = v%0(%1_args)
+        # 93: v%0 = v%1(%2_args)   (37)
+        if line[0] == 37:
+          out = _in = line[1]
+          args = line[2]
+        else:
+          out = line[1]
+          _in = line[2]
+          args = line[3]
         if args:
           extend((
             (18, 1, len(args)), # const v1 = {len(args)}
@@ -168,8 +285,20 @@ def builder(ClassName, inputs, py_codes, local_consts):
           (77, 1, 0, 2), # aput-object v0[v2] = v1
         ))
 
-      case 95..97:
-        print("unar:", line, unars[line[0] - 95])
+      # 94
+
+      case 95..97: # v%0 = {unars}v%1   (51..53)
+        code, out, _in = line
+        # print("unar:", line, unars[line[0] - 95])
+        get_reg(1, _in) # const v1 = regs[_in] (Правый операнд)
+        extend((
+          (110, UnaryMethods[code - 95], (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__neg__()Lpbi/executor/types/Base;
+          (12, 1), # move-result-object v1
+          (18, 2, out), # const v2 = {out}
+          (77, 1, 0, 2), # aput-object v0[v2] = v1
+        ))
+
+      # 98..99
 
       case _: raise Exception("code_%s not supported!" % line[0])
 

@@ -273,14 +273,14 @@ def DalvikAssembler(codes_b, Pool):
           # write4(off - line)
           write4(off)
 
-        case 50..55: # pair_goto
+        case 50..55: # if
           pair = data[1]
           w_byte(code)
           w_byte(pair[1] << 4 | pair[0])
           # write2(data[2] - line) # off
           write2(data[2]) # off
 
-        case 56..61: # byte_goto
+        case 56..61: # ifz
           w_byte(code)
           w_byte(data[1]) # reg
           # write2(data[2] - line) # off
@@ -653,6 +653,27 @@ class Pooler:
     self.method_arr = sorted(self.Methods.values(), key = comp_method)
     self.method_d = {Method[0] : i for i, Method in enumerate(self.method_arr)}
 
+  def sort_FM(self, dex_classes):
+    def comp_F(obj):
+      return self.field_d["%s->%s" % (className, obj[1])]
+    def comp_M(obj):
+      return self.method_d["%s->%s" % (className, obj[1])]
+
+    allFM_groups = []; add = allFM_groups.append
+    for dex_class in dex_classes:
+      className = dex_class[0]
+      allFM = dex_class[6]
+      groups = ([], [], [], [])
+      g_appends = tuple(group.append for group in groups)
+      for FM in allFM: g_appends[FM[0]](FM)
+
+      A = sorted(groups[0], key = comp_F)
+      B = sorted(groups[1], key = comp_F)
+      C = sorted(groups[2], key = comp_M)
+      D = sorted(groups[3], key = comp_M)
+      add((A, B, C, D))
+    return allFM_groups
+
   # запись пулов в целевой файл
 
   def write_strs(self, file):
@@ -836,7 +857,7 @@ def DexWriter(dex_classes):
     print("%04s %s" % (N, name))
     collect(classObj)
   Pool.sorting()
-  # Pool.sort_FM(class_arr)
+  allFM_groups = Pool.sort_FM(dex_classes)
 
 
 
@@ -861,10 +882,11 @@ def DexWriter(dex_classes):
     type_list_d = Pool.type_list_d
 
     for N, classObj in enumerate(dex_classes, 1):
-      className, accessF, superName, interfaces, sourceStr, classAnnots, allFM = classObj
+      className, accessF, superName, interfaces, sourceStr, classAnnots, allFM_unused = classObj
       print("%4s %s" % (N, className))
 
-      class_idx, groups = write_class_data(className, allFM)
+      groups = allFM_groups[N - 1]
+      class_idx = write_class_data(className, groups)
       annot_idx = dir_annotation(className, classAnnots, groups)
       values_idx = write_values(groups)
 
@@ -877,11 +899,7 @@ def DexWriter(dex_classes):
       writeMark(class_idx)
       writeMark(values_idx)
 
-  def write_class_data(className, allFM):
-    groups = ([], [], [], [])
-    g_appends = tuple(group.append for group in groups)
-    for FM in allFM: g_appends[FM[0]](FM)
-
+  def write_class_data(className, groups):
     res_g = ([], [], [], [])
     res_appends = tuple(res.append for res in res_g)
     field_d = Pool.field_d
@@ -896,15 +914,15 @@ def DexWriter(dex_classes):
         nameId = (method_d if is_method else field_d)[name]
         delta = nameId - pred_id
         if delta < 0:
-          print((Pool.method_arr if is_method else Pool.field_arr)[pred_id][0])
-          print(name)
+          print((Pool.method_arr if is_method else Pool.field_arr)[pred_id][0], "(%s)" % pred_id)
+          print(name, "(%s)" % nameId)
           raise Exception("Дельта не должна быть меньше нуля (ошибка сортировщика полей & методов)! delta = %s" % delta)
         if is_method: res_append((delta, accessFM, write_codes(codeObj, debug)))
         else: res_append((delta, accessFM))
         pred_id = nameId
 
     if sum(map(len, res_g)) == 0:
-      return 0, (), groups
+      return 0
 
     res = class_data_b.pos2()
     uleb128 = class_data_b.uleb128_h
@@ -914,7 +932,7 @@ def DexWriter(dex_classes):
       for FM in group:
         for i in FM: uleb128(i)
 
-    return res, groups
+    return res
 
   static_values_d = {}
   def write_values(groups): # encoded values для полей
