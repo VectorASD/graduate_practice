@@ -8,4 +8,18 @@ if True: # __name__ == "__main__":
 
 import python2java # python2java
 
-python2java(__code("polygon.py"))
+module = python2java(__code("polygon.py"))
+
+print("~" * 53)
+
+print("• module:", module)
+print(module.fields())
+print(module.methods())
+
+inst = module()
+print("• inst:", inst)
+
+print("~" * 53)
+res = inst._m_module()
+print("~" * 53)
+print("• returned:", res)

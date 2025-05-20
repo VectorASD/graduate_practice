@@ -595,7 +595,7 @@ public class Main {
 
   static Base FuT = Functions.type;
   static Base FuI = Functions.inst;
-  static Base[] builtins_arr = {
+  public static Base[] builtins_arr = {
     FuT.getattr("print", FuI),
     None,
     // Range.type, // range
@@ -727,6 +727,12 @@ public class Main {
 
 
   int last_method = -1;
+
+  /* private static Base[] void_arr = new Base[0];
+  private void for_translator() {
+    Base[] no_base = void_arr;
+    Base item = builtins_arr[0];
+  } */
 
   private static Map<String, Base> void_map = new HashMap<>();
 

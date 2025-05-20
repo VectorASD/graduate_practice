@@ -32,6 +32,9 @@ def DalvikAssembler(codes_b, Pool):
     seek(4, 1) # пока неизвестен размер кода
     begin = tell()
 
+    labels = {}
+    tasks = []; task_add = tasks.append
+
     if type(code_data) is dict:
       code_data = code_data.values()
 
@@ -48,6 +51,10 @@ def DalvikAssembler(codes_b, Pool):
       # Правильнее сказать, bad input - это тип токена, который недопустим после типа предущего токена (например, 2 числа подряд - нельзя)
 
       match code:
+        case -1:
+          last_label = data[1]
+          labels[last_label] = line
+
         case 10..13 | 15..17 | 29..30 | 39: # byte
           write(bytes(data)) # code, reg
         case 28 | 31 | 34: # byte_type
@@ -67,14 +74,21 @@ def DalvikAssembler(codes_b, Pool):
           write2(type_d[data[2]]) # type
         # case 62..67 | 115 | 121..122 | 227..249: # unused
         case _:
-          raise Exception("  ERROR: Bytecode %s unused!" % data)
+          raise Exception("  ERROR: Bytecode %s unused!" % (data,))
 
 
 
         case 0: # nop
           Type = data[1]
-          w_byte(0)
-          w_byte(Type)
+          if line & 1:
+            write2(0) # nop (иначе будет ошибка, например, unaligned array data table)
+            labels[last_label] += 1 # иначе, метка упрётся в nop
+            if Type:
+              w_byte(0)
+              w_byte(Type)
+          else:
+            w_byte(0)
+            w_byte(Type)
           match Type:
             case 0: continue # nop
             case 1: # packed-switch
@@ -111,7 +125,9 @@ def DalvikAssembler(codes_b, Pool):
 
               match n_size:
                 case 1:
-                  for i in arr: w_byte(i)
+                  if type(arr) is bytes: write(arr)
+                  else:
+                    for i in arr: w_byte(i)
                   if len(arr) & 1 == 1: w_byte(0) # pad
                 case 2:
                   for i in arr: write2(i)
@@ -225,12 +241,18 @@ def DalvikAssembler(codes_b, Pool):
           write2(start)
 
         case 38: # fill_array_data
+          def task(pos, off):
+            seek(pos)
+            write4(off)
           w_byte(38)
           w_byte(data[1]) # reg
-          write4(data[2] - line) # off
+          # write4(data[2] - line) # off
+          pos = tell(); write4(0)
+          task_add((task, pos, line, data[2]))
 
         case 40..42: # goto
-          a = data[1] - line # off
+          # a = data[1] - line # off
+          a = data[1] # off
           n_code = 40 if a in range(-128, 128) else 41 if a in range(-0x8000, 0x8000) else 42
 
           if n_code != code: print("!!!", code, "->", n_code, data)
@@ -244,21 +266,25 @@ def DalvikAssembler(codes_b, Pool):
 
         case 43..44: # switch
           off = data[2]
-          (PackedSwitch if code == 43 else SparseSwitch)[off] = line
+          # (PackedSwitch if code == 43 else SparseSwitch)[off] = line
+          (PackedSwitch if code == 43 else SparseSwitch)[line + off] = line
           w_byte(code)
           w_byte(data[1]) # reg
-          write4(off - line)
+          # write4(off - line)
+          write4(off)
 
         case 50..55: # pair_goto
           pair = data[1]
           w_byte(code)
           w_byte(pair[1] << 4 | pair[0])
-          write2(data[2] - line) # off
+          # write2(data[2] - line) # off
+          write2(data[2]) # off
 
         case 56..61: # byte_goto
           w_byte(code)
           w_byte(data[1]) # reg
-          write2(data[2] - line) # off
+          # write2(data[2] - line) # off
+          write2(data[2]) # off
 
         case 82..95: # iget_iput
           pair = data[1]
@@ -366,6 +392,9 @@ def DalvikAssembler(codes_b, Pool):
 
     seek(begin - 4)
     write4(size)
+
+    for func, pos, line, label in tasks:
+      func(pos, labels[label] - line)
 
     seek(end) # важно!
 
@@ -714,9 +743,8 @@ class Pooler:
     # annotations
 
     def collectAnnot(annot):
-      T, items = annot
-      addType(T)
-      for TypeV, name, value in items:
+      addType(annot[0])
+      for TypeV, name, value in annot[1]:
         addStr(name)
         encodedValue(TypeV, value)
 
