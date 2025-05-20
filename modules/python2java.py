@@ -36,6 +36,31 @@ def DVM_name(class_name):
 
 
 
+BaseType = "Lpbi/executor/types/Base;"
+BaseArrType = "[" + BaseType
+NoneType = "Lpbi/executor/types/NoneType;"
+BigIntType = "Lpbi/executor/types/BigInt;"
+TupleType = "Lpbi/executor/types/Tuple;"
+NameErrorType = "Lpbi/executor/exceptions/NameError;"
+
+CoreType = "Lpbi/executor/Main;"
+
+GlobalsField = "->globals:" + BaseArrType
+VoidArrField = "->void_arr:" + BaseArrType
+VoidMapField = "->void_map:Ljava/util/Map;"
+BuiltinsField = "%s->builtins_arr:%s" % (CoreType, BaseArrType)
+NoneField = "%s->None:%s" % (CoreType, NoneType)
+
+CallerMethod = "%s->__call__(%sLjava/util/Map;)%s" % (BaseType, BaseArrType, BaseType)
+TupleCtor = "%s-><init>(%s)V" % (TupleType, BaseArrType)
+BigIntCtor = BigIntType + "-><init>([B)V"
+NameErrorCtor = NameErrorType + "-><init>(Ljava/lang/String;)V"
+
+
+
+maths = ("__add__", "__sub__", "__mul__", "__matmul__", "__truediv__", "__mod__", "__and__", "__or__", "__xor__", "__lshift__", "__rshift__", "__pow__", "__floordiv__", "__lt", "__gt", "__eq", "__ge", "__le", "__ne")
+unars = ("__pos__", "__neg__", "__invert__")
+
 def builder(ClassName, inputs, py_codes, local_consts):
   registers = 6
   outsSize = 3 # пока не разобрался, как ЭТО правильно считать...
@@ -70,16 +95,16 @@ def builder(ClassName, inputs, py_codes, local_consts):
     """ # Что я сразу не подумал-то?! Получается свёртка констант на уровне данного генератора кода 👍👍👍 Это понял только после JaDX-декомпилятора
     extend((
       (57, reg, 10), # if-nez v{reg}, :{+10 * 2 bytes}
-      (34, 1, 'Lpbi/executor/exceptions/NameError;'), # new-instance v1, Lpbi/executor/exceptions/NameError;
+      (34, 1, NameErrorType), # new-instance v1, Lpbi/executor/exceptions/NameError;
       (26, 2, "name 'regs:%s' is not defined" % py_reg), # const-string v2, "name 'regs:{py_reg}' is not defined"
-      (112, 'Lpbi/executor/exceptions/NameError;-><init>(Ljava/lang/String;)V', (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/exceptions/NameError;-><init>(Ljava/lang/String;)V
+      (112, NameErrorCtor, (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/exceptions/NameError;-><init>(Ljava/lang/String;)V
       (39, 1), # throw v1
     ))
 
   def get_reg(reg, py_reg):
     try:
       const = local_consts[py_reg]
-      field_name = "%s->c%s:Lpbi/executor/types/Base;" % (ClassName, const)
+      field_name = "%s->c%s:%s" % (ClassName, const, BaseType)
       append((98, reg, field_name)) # sget-object v{reg}, {...}
       return
     except KeyError: pass
@@ -92,7 +117,7 @@ def builder(ClassName, inputs, py_codes, local_consts):
   codes = [
     # (7, 0, p1), # move-object v0, p1
     # (84, (0, 0), 'Lpbi/executor/RegLocs;->regs:[Lpbi/executor/types/Base;'), # iget-object v0, v0, Lpbi/executor/RegLocs;->regs:[Lpbi/executor/types/Base;
-    (84, (0, p0), ClassName + '->globals:[Lpbi/executor/types/Base;'), # iget-object v0, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
+    (84, (0, p0), ClassName + GlobalsField), # iget-object v0, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
   ]
   extend = codes.extend
   append = codes.append
@@ -101,7 +126,7 @@ def builder(ClassName, inputs, py_codes, local_consts):
     match line[0]:
       case 43: # return
         extend((
-          (98, 0, 'Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;'), # sget-object v0, Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;
+          (98, 0, NoneField), # sget-object v0, Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;
           (17, 0), # return-object v0
         ))
 
@@ -110,6 +135,15 @@ def builder(ClassName, inputs, py_codes, local_consts):
         get_reg(2, line[2]) # const v2 = regs[line[2]]
         append((77, 2, 0, 1)) # aput-object v0[v1] = v2
 
+      case 71..89: # v%0 = v%1 {maths} v%2   (14..32)
+        print("math:", line, maths[line[0] - 71])
+
+      case 90: # v%0 = v%1 in v%2   (33)
+        print("in:", line)
+
+      case 91: # v%0 = v%1 is v%2   (34)
+        print("is:", line)
+
       case 93: # v%0 = v%1(%2_args)   (37)
         out = line[1]
         _in = line[2]
@@ -117,22 +151,25 @@ def builder(ClassName, inputs, py_codes, local_consts):
         if args:
           extend((
             (18, 1, len(args)), # const v1 = {len(args)}
-            (35, (1, 1), '[Lpbi/executor/types/Base;'),  # new-array v1, v1, [Lpbi/executor/types/Base;
+            (35, (1, 1), BaseArrType),  # new-array v1, v1, [Lpbi/executor/types/Base;
           ))
           for i, arg in enumerate(args):
             append((18, 2, i)) # const v2 = {i}
             get_reg(3, arg) # const v3 = regs[arg]
             append((77, 3, 1, 2)) # aput-object v1[v2] = v3
-        else: append((98, 1, ClassName + '->void_arr:[Lpbi/executor/types/Base;')) # sget-object v1, {ClassName}->void_arr:[Lpbi/executor/types/Base;
+        else: append((98, 1, ClassName + VoidArrField)) # sget-object v1, {ClassName}->void_arr:[Lpbi/executor/types/Base;
         extend((
           (18, 2, _in), # const v2 = {_in}
           (70, 2, 0, 2), # aget-object v2 = v0[v2]
-          (98, 3, ClassName + '->void_map:Ljava/util/Map;'), # sget-object v3, {ClassName}->void_map:Ljava/util/Map;
-          (110, 'Lpbi/executor/types/Base;->__call__([Lpbi/executor/types/Base;Ljava/util/Map;)Lpbi/executor/types/Base;', (2, 1, 3)), # invoke-virtual {v2, v1, v3}, Lpbi/executor/types/Base;->__call__([Lpbi/executor/types/Base;Ljava/util/Map;)Lpbi/executor/types/Base;
+          (98, 3, ClassName + VoidMapField), # sget-object v3, {ClassName}->void_map:Ljava/util/Map;
+          (110, CallerMethod, (2, 1, 3)), # invoke-virtual {v2, v1, v3}, Lpbi/executor/types/Base;->__call__([Lpbi/executor/types/Base;Ljava/util/Map;)Lpbi/executor/types/Base;
           (12, 1), # move-result-object v1
           (18, 2, out), # const v2 = {out}
           (77, 1, 0, 2), # aput-object v0[v2] = v1
         ))
+
+      case 95..97:
+        print("unar:", line, unars[line[0] - 95])
 
       case _: raise Exception("code_%s not supported!" % line[0])
 
@@ -148,35 +185,35 @@ def apply_consts(ClassName, extend, consts, end):
   for c_num, const in enumerate(consts):
     T = type(const)
     name = "c%s" % c_num
-    field_name = name + ":Lpbi/executor/types/Base;"
+    field_name = "%s:%s" % (name, BaseType)
     if T is int:
       label = ":array_" + name
       b_arr = const.to_bytes(None, "little", True)
       end((-1, label))
       end((0, 3, 1, b_arr))
       extend((
-        (34, 0, 'Lpbi/executor/types/BigInt;'), # new-instance v0, Lpbi/executor/types/BigInt;
+        (34, 0, BigIntType), # new-instance v0, Lpbi/executor/types/BigInt;
         (18, 1, len(b_arr)), # const v1 = {len(b_arr)}
         (35, (1, 1), '[B'), # new-array v1, v1, [B
         (38, 1, label), # fill_array_data v1, {label}
-        (112, 'Lpbi/executor/types/BigInt;-><init>([B)V', (0, 1)), # invoke-direct {v0, v1}, Lpbi/executor/types/BigInt;-><init>([B)V
+        (112, BigIntCtor, (0, 1)), # invoke-direct {v0, v1}, Lpbi/executor/types/BigInt;-><init>([B)V
         (105, 0, '%s->%s' % (ClassName, field_name)), # sput-object v0, {...}
       ))
     elif T is tuple: # уже давно как, tuple у меня попадает под свёртку констант, а вот range, enumerate и прочее, увы, пока нет, т.к. я недавно это заметил в оригинальном питоне
       extend((
         (18, 0, len(const)), # const v0 = {len(const)}
-        (35, (0, 0), '[Lpbi/executor/types/Base;'), # new-array v0, v0, [Lpbi/executor/types/Base;
+        (35, (0, 0), BaseArrType), # new-array v0, v0, [Lpbi/executor/types/Base;
       ))
       for n, const in enumerate(const):
-        field2_name = "%s->c%s:Lpbi/executor/types/Base;" % (ClassName, const)
+        field2_name = "%s->c%s:%s" % (ClassName, const, BaseType)
         extend((
           (18, 1, n), # const v1 = {n}
           (98, 2, field2_name), # sget-object v2, {...}
           (77, 2, 0, 1), # aput-object v0[v1] = v2
         ))
       extend((
-        (34, 1, 'Lpbi/executor/types/Tuple;'), # new-instance v1, Lpbi/executor/types/Tuple;
-        (112, 'Lpbi/executor/types/Tuple;-><init>([Lpbi/executor/types/Base;)V', (1, 0)), # invoke-direct {v1, v0}, Lpbi/executor/types/Tuple;-><init>([Lpbi/executor/types/Base;)V
+        (34, 1, TupleType), # new-instance v1, Lpbi/executor/types/Tuple;
+        (112, TupleCtor, (1, 0)), # invoke-direct {v1, v0}, Lpbi/executor/types/Tuple;-><init>([Lpbi/executor/types/Base;)V
         (105, 1, '%s->%s' % (ClassName, field_name)), # sput-object v1, {...}
       ))
     else: 1/0
@@ -220,10 +257,10 @@ def python2java(code):
   clinit_codes = [
     (34, 0, 'Ljava/util/HashMap;'),              # new-instance v0, Ljava/util/HashMap;
     (112, 'Ljava/util/HashMap;-><init>()V', (0,)), # invoke-direct {v0}, Ljava/util/HashMap;-><init>()V
-    (105, 0, ClassName + '->void_map:Ljava/util/Map;'), # sput-object v0, {ClassName}->void_map:Ljava/util/Map;
+    (105, 0, ClassName + VoidMapField), # sput-object v0, {ClassName}->void_map:Ljava/util/Map;
     (18, 0, 0), # const v0 = 0
-    (35, (0, 0), '[Lpbi/executor/types/Base;'),  # new-array v0, v0, [Lpbi/executor/types/Base;
-    (105, 0, ClassName + '->void_arr:[Lpbi/executor/types/Base;'), # sput-object v0, {ClassName}->void_arr:[Lpbi/executor/types/Base;
+    (35, (0, 0), BaseArrType),  # new-array v0, v0, [Lpbi/executor/types/Base;
+    (105, 0, ClassName + VoidArrField), # sput-object v0, {ClassName}->void_arr:[Lpbi/executor/types/Base;
   ]
   extend = clinit_codes.extend
   append = clinit_codes.append
@@ -236,12 +273,12 @@ def python2java(code):
   init_codes = [
     (112, 'Ljava/lang/Object;-><init>()V', (p0,)), # invoke-direct {p0}, Ljava/lang/Object;-><init>()V
     (18, 0, global_regs), # const v0 = {global_regs}
-    (35, (0, 0), '[Lpbi/executor/types/Base;'),  # new-array v0, v0, [Lpbi/executor/types/Base;
-    (91, (0, p0), ClassName + '->globals:[Lpbi/executor/types/Base;'), # iput-object v0, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
+    (35, (0, 0), BaseArrType),  # new-array v0, v0, [Lpbi/executor/types/Base;
+    (91, (0, p0), ClassName + GlobalsField), # iput-object v0, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
   ]
   extend = init_codes.extend
   append = init_codes.append
-  if b_links: append((98, 1, 'Lpbi/executor/Main;->builtins_arr:[Lpbi/executor/types/Base;')) # sget-object v1, Lpbi/executor/Main;->builtins_arr:[Lpbi/executor/types/Base;
+  if b_links: append((98, 1, BuiltinsField)) # sget-object v1, Lpbi/executor/Main;->builtins_arr:[Lpbi/executor/types/Base;
   for idx, reg in b_links:
     extend((
       (18, 2, idx), # const/4 v2, {idx}
@@ -257,14 +294,14 @@ def python2java(code):
    (), None, (),
    (
     *const_fields,
-    (IS_STATIC_FIELD, 'void_arr:[Lpbi/executor/types/Base;', ACCESS_STATIC | ACCESS_PRIVATE, None, (), None, {}),
-    (IS_STATIC_FIELD, 'void_map:Ljava/util/Map;', ACCESS_STATIC | ACCESS_PRIVATE, None, (('Ldalvik/annotation/Signature;', ((28, 'value', ((23, '"Ljava/util/Map"'), (23, '"<"'), (23, '"Ljava/lang/String;"'), (23, '"Lpbi/executor/types/Base;"'), (23, '">;"'))),), 'system'),), None, {}),
-    (IS_INSTANCE_FIELD, 'globals:[Lpbi/executor/types/Base;', ACCESS_NOFLAGS, None, (), None, {}),
+    (IS_STATIC_FIELD, VoidArrField[2:], ACCESS_STATIC | ACCESS_PRIVATE, None, (), None, {}),
+    (IS_STATIC_FIELD, VoidMapField[2:], ACCESS_STATIC | ACCESS_PRIVATE, None, (('Ldalvik/annotation/Signature;', ((28, 'value', ((23, '"Ljava/util/Map"'), (23, '"<"'), (23, '"Ljava/lang/String;"'), (23, '"%s"' % BaseType), (23, '">;"'))),), 'system'),), None, {}),
+    (IS_INSTANCE_FIELD, GlobalsField[2:], ACCESS_NOFLAGS, None, (), None, {}),
     (IS_DIRECT_METHOD, '<clinit>()V', ACCESS_CONSTRUCTOR | ACCESS_STATIC, None, (),
      (4, 0, 2, None, clinit_codes, ()), {}),
     (IS_DIRECT_METHOD, '<init>()V', ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
      (4, 1, 1, None, init_codes, ()), {}),
-    (IS_VIRTUAL_METHOD, 'module()Lpbi/executor/types/Base;', ACCESS_NOFLAGS, None, (annot,), module_func, {})
+    (IS_VIRTUAL_METHOD, 'module()' + BaseType, ACCESS_NOFLAGS, None, (annot,), module_func, {})
    )
   )
 
