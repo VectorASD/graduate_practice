@@ -42,6 +42,8 @@ NoneType = "Lpbi/executor/types/NoneType;"
 BooleanType = "Lpbi/executor/types/pBoolean;"
 BigIntType = "Lpbi/executor/types/BigInt;"
 TupleType = "Lpbi/executor/types/Tuple;"
+StringType = "Lpbi/executor/types/pString;"
+BytesType = "Lpbi/executor/types/Bytes;"
 NameErrorType = "Lpbi/executor/exceptions/NameError;"
 
 CoreType = "Lpbi/executor/Main;"
@@ -57,6 +59,8 @@ FalseField = "%s->False:%s" % (CoreType, BooleanType)
 CallerMethod = "%s->__call__(%sLjava/util/Map;)%s" % (BaseType, BaseArrType, BaseType)
 TupleCtor = "%s-><init>(%s)V" % (TupleType, BaseArrType)
 BigIntCtor = BigIntType + "-><init>([B)V"
+StringCtor = StringType + "-><init>(Ljava/lang/String;)V"
+BytesCtor = BytesType + "-><init>([B)V"
 NameErrorCtor = NameErrorType + "-><init>(Ljava/lang/String;)V"
 
 
@@ -309,7 +313,7 @@ def builder(ClassName, inputs, py_codes, local_consts):
 
 
 
-def apply_consts(ClassName, extend, consts, end):
+def apply_consts(ClassName, extend, append, consts, end):
   fields = []; field_add = fields.append
   for c_num, const in enumerate(consts):
     T = type(const)
@@ -345,7 +349,34 @@ def apply_consts(ClassName, extend, consts, end):
         (112, TupleCtor, (1, 0)), # invoke-direct {v1, v0}, Lpbi/executor/types/Tuple;-><init>([Lpbi/executor/types/Base;)V
         (105, 1, '%s->%s' % (ClassName, field_name)), # sput-object v1, {...}
       ))
-    else: 1/0
+    elif T is str:
+      extend((
+        (34, 0, StringType), # new-instance v0, Lpbi/executor/types/pString;
+        (26, 1, const), # const-string v1, {const}
+        (112, StringCtor, (0, 1)), # invoke-direct {v0, v1}, Lpbi/executor/types/pString;-><init>(Ljava/lang/String;)V
+        (105, 0, '%s->%s' % (ClassName, field_name)), # sput-object v0, {...}
+      ))
+    elif T is bytes:
+      label = ":array_" + name
+      end((-1, label))
+      end((0, 3, 1, const))
+      extend((
+        (34, 0, BytesType), # new-instance v0, Lpbi/executor/types/Bytes;
+        (18, 1, len(const)), # const v1 = {len(b_arr)}
+        (35, (1, 1), '[B'), # new-array v1, v1, [B
+        (38, 1, label), # fill_array_data v1, {label}
+        (112, BytesCtor, (0, 1)), # invoke-direct {v0, v1}, Lpbi/executor/types/Bytes;-><init>([B)V
+        (105, 0, '%s->%s' % (ClassName, field_name)), # sput-object v0, {...}
+      ))
+    elif T is bool:
+      if const: append((98, 0, TrueField)) # sget-object v0, Lpbi/executor/Main;->True:Lpbi/executor/types/pBoolean;
+      else: append((98, 0, FalseField)) # sget-object v0, Lpbi/executor/Main;->False:Lpbi/executor/types/pBoolean;
+      append((105, 0, '%s->%s' % (ClassName, field_name))) # sput-object v0, {...}
+    else: # const is None
+      extend((
+        (98, 0, NoneField), # sget-object v0, Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;
+        (105, 0, '%s->%s' % (ClassName, field_name)), # sput-object v0, {...}
+      ))
     field_add((IS_STATIC_FIELD, field_name, ACCESS_STATIC | ACCESS_PRIVATE, None, (), None, {}))
   return fields
 
@@ -394,7 +425,7 @@ def python2java(code):
   extend = clinit_codes.extend
   append = clinit_codes.append
   end = []; end_append = end.append
-  const_fields = apply_consts(ClassName, extend, consts, end_append)
+  const_fields = apply_consts(ClassName, extend, append, consts, end_append)
   append((14,)) # return-void
   extend(end)
 

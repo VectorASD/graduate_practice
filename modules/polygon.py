@@ -13,3 +13,5 @@ print(1 < 2, 1 == 2, 1 > 2, 1 <= 2, 1 != 2, 1 >= 2)
 
 print(type(1234) is int, type(1234) is tuple)
 print(2 in (1, 2, 3), 127 in (1, 2, 3))
+
+print("Пора добавить оставшиеся типы констант:\nстрока", b"bytes", None, True, False)
