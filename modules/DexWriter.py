@@ -200,16 +200,13 @@ def DalvikAssembler(codes_b, Pool):
         case 24..25: # long_const
           reg = data[1]
           num = data[2]
-          if type(num) is str: num = float(num)
-
-          buff = BytesIO()
-          buff.pack("<q", num)
-          num = buff.getvalue()
+          # if type(num) is str: num = float(num)
+          num = struct.pack("<q" if type(num) is int else "<d", num)
           n_code = 25 if num[:6] == b"\0\0\0\0\0\0" else 24
 
           if n_code != code: print("!!!", code, "->", n_code, data)
 
-          w_byte(code)
+          w_byte(n_code)
           w_byte(reg)
           write(num if n_code == 24 else num[6:])
 
@@ -298,16 +295,46 @@ def DalvikAssembler(codes_b, Pool):
           w_byte(data[1]) # reg
           write2(field_d[data[2]]) # data
 
-        case 110..114: # invoke
+        case 110..114: # invoke-* ("virtual", "super", "direct", "static", "interface")
           regs = data[2]
-          L = len(regs)
           w_byte(code)
-          w_byte(L << 4 | regs[4] if L > 4 else L << 4)
-          write2(method_d[data[1]]) # method
-          w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
-          w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+          # w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+          # write2(method_d[data[1]]) # method
+          # w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+          # w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+          match len(regs): # для ускорения
+            case 0:
+              w_byte(0)
+              write2(method_d[data[1]])
+              write2(0)
+            case 1:
+              w_byte(16)
+              write2(method_d[data[1]])
+              w_byte(regs[0])
+              w_byte(0)
+            case 2:
+              w_byte(32)
+              write2(method_d[data[1]])
+              w_byte(regs[1] << 4 | regs[0])
+              w_byte(0)
+            case 3:
+              w_byte(48)
+              write2(method_d[data[1]])
+              w_byte(regs[1] << 4 | regs[0])
+              w_byte(regs[2])
+            case 4:
+              w_byte(64)
+              write2(method_d[data[1]])
+              w_byte(regs[1] << 4 | regs[0])
+              w_byte(regs[3] << 4 | regs[2])
+            case 5:
+              w_byte(80 | regs[4])
+              write2(method_d[data[1]])
+              w_byte(regs[1] << 4 | regs[0])
+              w_byte(regs[3] << 4 | regs[2])
+            case _: 1/0 # лимит invoke - до пяти регистров-аргументов, иначе, юзайте invoke-*/range
 
-        case 116..120: # invoke_range
+        case 116..120: # invoke-*/range
           start = data[1]
           w_byte(code)
           w_byte(data[2] - start + 1) # count

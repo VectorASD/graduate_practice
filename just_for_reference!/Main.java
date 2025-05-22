@@ -732,6 +732,7 @@ public class Main {
   private void for_translator() {
     Base[] no_base = void_arr;
     Base item = builtins_arr[0];
+    new pFloat(1.234d);
   } */
 
   private static Map<String, Base> void_map = new HashMap<>();

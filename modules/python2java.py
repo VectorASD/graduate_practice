@@ -43,6 +43,7 @@ BaseArrType = "[" + BaseType
 NoneType = "Lpbi/executor/types/NoneType;"
 BooleanType = "Lpbi/executor/types/pBoolean;"
 BigIntType = "Lpbi/executor/types/BigInt;"
+FloatType = "Lpbi/executor/types/pFloat;"
 StringType = "Lpbi/executor/types/pString;"
 BytesType = "Lpbi/executor/types/Bytes;"
 ListType = "Lpbi/executor/types/List;"
@@ -62,6 +63,7 @@ FalseField = "%s->False:%s" % (CoreType, BooleanType)
 
 CallerMethod = "%s->__call__(%sLjava/util/Map;)%s" % (BaseType, BaseArrType, BaseType)
 BigIntCtor = BigIntType + "-><init>([B)V"
+FloatCtor = FloatType + "-><init>(D)V"
 StringCtor = StringType + "-><init>(Ljava/lang/String;)V"
 BytesCtor = BytesType + "-><init>([B)V"
 ListCtor = ListType + "-><init>()V"
@@ -83,6 +85,7 @@ SetItemMethod = "%s->__setitem__(I%s)V" % (BaseType, BaseType)
 SetItemMethod2 = "%s->__setitem__(%s%s)V" % (BaseType, BaseType, BaseType)
 GetItemMethod = "%s->__getitem__(I)%s" % (BaseType, BaseType)
 GetItemMethod2 = "%s->__getitem__(%s)%s" % (BaseType, BaseType, BaseType)
+GetAttrMethod = "%s->__getattr__(Ljava/lang/String;)%s" % (BaseType, BaseType)
 LenMethod = BaseType + "->__len()I"
 
 """ TODOs:
@@ -155,6 +158,15 @@ def builder(ClassName, inputs, py_codes, local_consts):
       (18, tmp, idx), # const v{tmp} = {idx}
       (77, reg, 0, tmp), # aput-object v0[v{tmp}] = v{reg}
     ))
+
+  def put_var(idx, reg):
+    if type(idx) is int:
+      put_reg(idx, reg)
+      return
+    print("var:", idx, reg); 1/0
+    #match reg & 7:
+    #  case 2: 
+    #  case _: print(idx >> 3, idx & 7); 1/0
 
   def make_base_array(args):
     extend((
@@ -303,7 +315,16 @@ def builder(ClassName, inputs, py_codes, local_consts):
 
       # 37 реализовано внутри 93
 
-      # 38..39
+      case 38: # v%0 = v%1.%2
+        get_reg(1, line[2]) # const v1 = regs[line[2]]
+        extend((
+          (26, 2, line[3]), # const-string v2, {line[3]}
+          (110, GetAttrMethod, (1, 2)), # invoke-virtual {v1, v2}, Lpbi/executor/types/Base;->__getattr__(Ljava/lang/String;)Lpbi/executor/types/Base;
+          (12, 1), # move-result-object v1
+        ))
+        put_reg(line[1], 1) # regs[line[1]] = v1
+
+      # 39
 
       case 40: # v%0[v%1] = v%2
         get_reg(1, line[1]) # const v1 = regs[line[1]]
@@ -343,7 +364,15 @@ def builder(ClassName, inputs, py_codes, local_consts):
           (77, 1, 0, 3), # aput-object v0[v3] = v1
         ))
 
-      # 54..59
+      # 54..58
+
+      case 59: # %0 <- "package%1"
+        extend((
+          (26, 2, line[2]), # const-string v2, {line[2]}
+          (34, 1, 'Lpbi/executor/types/JavaWrap;'), # new-instance v1, Lpbi/executor/types/JavaWrap;
+          (112, 'Lpbi/executor/types/JavaWrap;-><init>(Ljava/lang/String;)V', (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/types/JavaWrap;-><init>(Ljava/lang/String;)V
+        ))
+        put_var(line[1], 1) # var = v1
 
       case 60: # v%0 = reg v%1
         append((18, 1, line[1])) # const v1 = {line[1]}
@@ -515,7 +544,15 @@ def apply_consts(ClassName, extend, append, consts, end):
       if const: append((98, 0, TrueField)) # sget-object v0, Lpbi/executor/Main;->True:Lpbi/executor/types/pBoolean;
       else: append((98, 0, FalseField)) # sget-object v0, Lpbi/executor/Main;->False:Lpbi/executor/types/pBoolean;
       append((105, 0, '%s->%s' % (ClassName, field_name))) # sput-object v0, {...}
-    else: # const is None
+    elif T is float: # Пропустил случайно float - потерял 2 часа на попытках понять, почему sin(pi * 1.5) не работает... Получалось: sin(pi * None) => sin(NotImplemented)
+      extend((
+        (34, 0, FloatType), # new-instance v0, Lpbi/executor/types/pFloat;
+        (24, 1, const), # const-wide v1, {const}
+        (112, FloatCtor, (0, 1, 2)), # invoke-direct {v0, v1, v2}, Lpbi/executor/types/pFloat;-><init>(D)V
+        (105, 0, '%s->%s' % (ClassName, field_name)), # sput-object v0, {...}
+      ))
+    else:
+      assert const is None, "type: %s" % T
       extend((
         (98, 0, NoneField), # sget-object v0, Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;
         (105, 0, '%s->%s' % (ClassName, field_name)), # sput-object v0, {...}
@@ -569,6 +606,7 @@ def python2java(code):
   append = clinit_codes.append
   end = []; end_append = end.append
   const_fields = apply_consts(ClassName, extend, append, consts, end_append)
+  # print(*clinit_codes, sep = "\n")
   append((14,)) # return-void
   extend(end)
 
@@ -591,7 +629,7 @@ def python2java(code):
     ))
   append((14,)) # return-void
 
-  test_class = (ClassName,
+  class_obj = (ClassName,
    ACCESS_PUBLIC,
    'Ljava/lang/Object;',
    (), None, (),
@@ -601,14 +639,14 @@ def python2java(code):
     (IS_STATIC_FIELD, VoidMapField[2:], ACCESS_STATIC | ACCESS_PRIVATE, None, (('Ldalvik/annotation/Signature;', ((28, 'value', ((23, '"Ljava/util/Map"'), (23, '"<"'), (23, '"Ljava/lang/String;"'), (23, '"%s"' % BaseType), (23, '">;"'))),), 'system'),), None, {}),
     (IS_INSTANCE_FIELD, GlobalsField[2:], ACCESS_NOFLAGS, None, (), None, {}),
     (IS_DIRECT_METHOD, '<clinit>()V', ACCESS_CONSTRUCTOR | ACCESS_STATIC, None, (),
-     (4, 0, 2, None, clinit_codes, ()), {}),
+     (4, 0, 3, None, clinit_codes, ()), {}),
     (IS_DIRECT_METHOD, '<init>()V', ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
      (4, 1, 1, None, init_codes, ()), {}),
     (IS_VIRTUAL_METHOD, 'module()' + BaseType, ACCESS_NOFLAGS, None, (annot,), module_func, {})
    )
   )
 
-  dexData = DexWriter((test_class,))
+  dexData = DexWriter((class_obj,))
   with open("/sdcard/Check.dex", "wb") as file:
     file.write(dexData)
 

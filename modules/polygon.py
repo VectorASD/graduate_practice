@@ -14,7 +14,7 @@ print(1 < 2, 1 == 2, 1 > 2, 1 <= 2, 1 != 2, 1 >= 2)
 print(type(1234) is int, type(1234) is tuple)
 print(2 in (1, 2, 3), 127 in (1, 2, 3))
 
-print("Пора добавить оставшиеся типы констант:\nстрока", b"bytes", None, True, False)
+print("Пора добавить оставшиеся типы констант:\nстрока", b"bytes", None, True, False, 1.5)
 
 ListZero = []
 ListOne = [1]
@@ -30,3 +30,13 @@ List[1:2] = (4, 5, 6)
 print(List) # 15, 4, 5, 6, 3
 List[-2:-5:-1] = (7, 8, 9)
 print(List) # 15, 9, 8, 7, 3
+
+from java.lang.Math import Math
+from double import DOUBLE
+print(Math, DOUBLE)
+
+sin = Math._mw_sin(DOUBLE)
+cos = Math._mw_cos(DOUBLE)
+pi = Math._f_PI
+print(sin, cos, pi)
+print(sin(pi * 1.5), cos(pi * 1.5))
