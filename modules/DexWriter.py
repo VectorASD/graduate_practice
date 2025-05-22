@@ -10,6 +10,13 @@ def DalvikAssembler(codes_b, Pool):
   # Позже (уже), добавлю это в грамматический файл, а также, реализую в своём компиляторе, с механикой от Java, чтобы заменить все dispatch-объекты на них
 
   def main(code_data):
+    def task2(pos, off):
+      seek(pos)
+      write2(off)
+    def task4(pos, off):
+      seek(pos)
+      write4(off)
+
     w_byte = codes_b.w_byte
     write  = codes_b.write
     write2 = codes_b.write2
@@ -239,18 +246,24 @@ def DalvikAssembler(codes_b, Pool):
           write2(start)
 
         case 38: # fill_array_data
-          def task(pos, off):
-            seek(pos)
-            write4(off)
           w_byte(38)
           w_byte(data[1]) # reg
           # write4(data[2] - line) # off
           pos = tell(); write4(0)
-          task_add((task, pos, line, data[2]))
+          task_add((task4, pos, line, data[2]))
 
         case 40..42: # goto
           # a = data[1] - line # off
           a = data[1] # off
+          if a < 0:
+            try: a = labels[a] - line
+            except KeyError:
+              w_byte(42)
+              w_byte(0) # pad
+              pos = tell(); write4(0)
+              task_add((task4, pos, line, a))
+              continue
+
           n_code = 40 if a in range(-128, 128) else 41 if a in range(-0x8000, 0x8000) else 42
 
           if n_code != code: print("!!!", code, "->", n_code, data)
@@ -282,7 +295,11 @@ def DalvikAssembler(codes_b, Pool):
           w_byte(code)
           w_byte(data[1]) # reg
           # write2(data[2] - line) # off
-          write2(data[2]) # off
+          off = data[2]
+          if type(off) is tuple:
+            pos = tell(); write2(0)
+            task_add((task2, pos, line, off[0]))
+          else: write2(off)
 
         case 82..95: # iget_iput
           pair = data[1]
@@ -425,6 +442,7 @@ def DalvikAssembler(codes_b, Pool):
       func(pos, labels[label] - line)
 
     seek(end) # важно!
+    return labels # для tries
 
   return main
 
@@ -582,6 +600,7 @@ class Pooler:
     # Type = TypeRenamer(Type)
     # self.addStr(Type)
     self._addType(Type)
+    # assert type(Type) is str
 
   def addTypeList(self, types):
     if not types: return
@@ -997,11 +1016,20 @@ def DexWriter(dex_classes):
     write2(TL)
     write4(0) # write4(write_debug(debug))
 
-    dalvikAssembler(code_data)
+    labels = dalvikAssembler(code_data)
 
     if not TL: return res
 
     # Запись try-блоков:
+
+    # print(tries)
+    tries = tuple(
+      (labels[a], labels[b] - labels[a], tuple(
+        (Type, labels[catch])
+        for Type, catch in catches
+      ), labels[catchAll] if catchAll is not None else None)
+      for a, b, catches, catchAll in tries)
+    # print(tries)
 
     start = tell()
     seek(TL * 8, 1)

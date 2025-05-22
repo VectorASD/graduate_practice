@@ -40,3 +40,11 @@ cos = Math._mw_cos(DOUBLE)
 pi = Math._f_PI
 print(sin, cos, pi)
 print(sin(pi * 1.5), cos(pi * 1.5))
+
+for i in range(10):
+  # print(i)
+  if i in range(3, 5): print("•")
+  else: print(i)
+print("yeah!")
+
+print([2 ** i for i in (3, 1, 2, 4)])

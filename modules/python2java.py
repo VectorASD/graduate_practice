@@ -38,6 +38,10 @@ def DVM_name(class_name):
 
 NOT_CHECK_REGS_IN_ARGS = True
 
+# Типы
+
+CoreType = "Lpbi/executor/Main;"
+
 BaseType = "Lpbi/executor/types/Base;"
 BaseArrType = "[" + BaseType
 NoneType = "Lpbi/executor/types/NoneType;"
@@ -48,10 +52,15 @@ StringType = "Lpbi/executor/types/pString;"
 BytesType = "Lpbi/executor/types/Bytes;"
 ListType = "Lpbi/executor/types/List;"
 TupleType = "Lpbi/executor/types/Tuple;"
+JavaWrapType = "Lpbi/executor/types/JavaWrap;"
+
+# Исключения
+
 NameErrorType = "Lpbi/executor/exceptions/NameError;"
 ValueErrorType = "Lpbi/executor/exceptions/ValueError;"
+StopIterationType = "Lpbi/executor/exceptions/StopIteration;"
 
-CoreType = "Lpbi/executor/Main;"
+# Поля
 
 GlobalsField = "->globals:" + BaseArrType
 VoidArrField = "->void_arr:" + BaseArrType
@@ -61,7 +70,8 @@ NoneField = "%s->None:%s" % (CoreType, NoneType)
 TrueField = "%s->True:%s" % (CoreType, BooleanType)
 FalseField = "%s->False:%s" % (CoreType, BooleanType)
 
-CallerMethod = "%s->__call__(%sLjava/util/Map;)%s" % (BaseType, BaseArrType, BaseType)
+# КонструкТОРы типов
+
 BigIntCtor = BigIntType + "-><init>([B)V"
 FloatCtor = FloatType + "-><init>(D)V"
 StringCtor = StringType + "-><init>(Ljava/lang/String;)V"
@@ -70,16 +80,26 @@ ListCtor = ListType + "-><init>()V"
 ListCtor2 = ListType + "-><init>(Ljava/util/ArrayList;)V"
 ListCtor3 = ListType + "-><init>(I)V"
 TupleCtor = "%s-><init>(%s)V" % (TupleType, BaseArrType)
+JavaWrapCtor = JavaWrapType + "-><init>(Ljava/lang/String;)V"
+
+# КонструкТОРы исключений
+
 NameErrorCtor = NameErrorType + "-><init>(Ljava/lang/String;)V"
 ValueErrorCtor = ValueErrorType + "-><init>(Ljava/lang/String;)V"
 
 
+
+# Методы арифметики
 
 maths = ("__add__", "__sub__", "__mul__", "__matmul__", "__truediv__", "__mod__", "__and__", "__or__", "__xor__", "__lshift__", "__rshift__", "__pow__", "__floordiv__", "__lt", "__gt", "__eq", "__ge", "__le", "__ne")
 unars = ("__pos__", "__neg__", "__invert__")
 
 BinaryMethods = tuple('%s->%s(%s)%s' % (BaseType, operation, BaseType, BaseType) for operation in maths)
 UnaryMethods = tuple('%s->%s()%s' % (BaseType, operation, BaseType) for operation in unars)
+
+# Остальные методы
+
+CallerMethod = "%s->__call__(%sLjava/util/Map;)%s" % (BaseType, BaseArrType, BaseType)
 ContainsMethod = "%s->__contains__(%s)%s" % (BaseType, BaseType, BooleanType)
 SetItemMethod = "%s->__setitem__(I%s)V" % (BaseType, BaseType)
 SetItemMethod2 = "%s->__setitem__(%s%s)V" % (BaseType, BaseType, BaseType)
@@ -87,6 +107,10 @@ GetItemMethod = "%s->__getitem__(I)%s" % (BaseType, BaseType)
 GetItemMethod2 = "%s->__getitem__(%s)%s" % (BaseType, BaseType, BaseType)
 GetAttrMethod = "%s->__getattr__(Ljava/lang/String;)%s" % (BaseType, BaseType)
 LenMethod = BaseType + "->__len()I"
+BoolMethod = BaseType + "->__bool()Z"
+IterMethod = "%s->__iter__()%s" % (BaseType, BaseType)
+NextMethod = "%s->__next__()%s" % (BaseType, BaseType)
+AppendMethod = "%s->append(%s)V" % (BaseType, BaseType)
 
 """ TODOs:
 Разделить вызов функций на их вызов и присвоение в регистр результата вызова (например, у всех print бессмысленное присвоение их None-результата в regs[0])
@@ -212,8 +236,23 @@ def builder(ClassName, inputs, py_codes, local_consts):
   extend = codes.extend
   append = codes.append
 
-  for line in py_codes:
+  tries = []
+  try_add = tries.append
+
+  # LINKS = {4: 3, 7: 2, 9: 1, 58: 2, 65: 4, 67: 3, 98: 4, 99: 3}
+  # for pos, line in enumerate(py_codes):
+  #   try: print(line, pos + line[LINKS[line[0]]])
+  #   except KeyError: pass
+
+  for pos, line in enumerate(py_codes):
+    # Коды оставшихся операций:
+    # 10, 11, 12, 13, 39, 41, 42, 44, 46, 47, 48, 49, 50,
+    # 54, 55, 56, 57, 58, 61, 62, 63, 64, 65, 66, 68, 70, 98, 99
     match line[0]:
+      case -1: # label
+        append((-1, -pos))
+        print("label:", -pos)
+
       case 0: # v%0 = [%1 None-items]     makelist
         extend((
           (34, 1, ListType), # new-instance v1, Lpbi/executor/types/List;
@@ -235,7 +274,15 @@ def builder(ClassName, inputs, py_codes, local_consts):
         ))
         put_reg(line[1], 1) # regs[line[1]] = v1
 
-      # 3..4
+      case 3: # v%0 = v%0.__iter__()
+        get_reg(1, line[1], 2) # const v2 = {line[1]}, v1 = regs[v2]
+        extend((
+          (110, IterMethod, (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__iter__()Lpbi/executor/types/Base;
+          (12, 1), # move-result-object v1
+          (77, 1, 0, 2), # aput-object v0[v2] = v1
+        ))
+
+      # 4 реализовано внутри 67
 
       case 5: # test tuple & size %0: v%1
         get_reg(1, line[2]) # const v1 = regs[line[2]]
@@ -270,7 +317,26 @@ def builder(ClassName, inputs, py_codes, local_consts):
         ))
         put_reg(line[1], 1) # regs[line[1]] = v1
 
-      # 7..13
+      case 7: # ifn v%0: goto %1
+        get_reg(1, line[1]) # const v1 = regs[line[1]]
+        off = -(pos + line[2])
+        extend((
+          (110, BoolMethod, (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__bool()Z
+          (10, 1), # move-result v1
+          (56, 1, (off,)), # if-eqz v1, :{off}
+        ))
+
+      case 8: # v%0.append(v%1)
+        get_reg(1, line[1]) # const v1 = regs[line[1]]
+        get_reg(2, line[2]) # const v2 = regs[line[2]]
+        append((110, AppendMethod, (1, 2))) # invoke-virtual {v1, v2}, Lpbi/executor/types/Base;->append(Lpbi/executor/types/Base;)V
+
+      case 9: # goto %0
+        off = -(pos + line[1])
+        assert off < 0, "off = %s" % off
+        append((40, off)) # goto :{off}
+
+      # 10..13
 
       case 14..32: # v%0 {maths}= v%1
         code, in1, in2 = line
@@ -369,17 +435,51 @@ def builder(ClassName, inputs, py_codes, local_consts):
       case 59: # %0 <- "package%1"
         extend((
           (26, 2, line[2]), # const-string v2, {line[2]}
-          (34, 1, 'Lpbi/executor/types/JavaWrap;'), # new-instance v1, Lpbi/executor/types/JavaWrap;
-          (112, 'Lpbi/executor/types/JavaWrap;-><init>(Ljava/lang/String;)V', (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/types/JavaWrap;-><init>(Ljava/lang/String;)V
+          (34, 1, JavaWrapType), # new-instance v1, Lpbi/executor/types/JavaWrap;
+          (112, JavaWrapCtor, (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/types/JavaWrap;-><init>(Ljava/lang/String;)V
         ))
-        put_var(line[1], 1) # var = v1
+        put_var(line[1], 1) # var(line[1]) = v1
 
       case 60: # v%0 = reg v%1
         append((18, 1, line[1])) # const v1 = {line[1]}
         get_reg(2, line[2]) # const v2 = regs[line[2]]
         append((77, 2, 0, 1)) # aput-object v0[v1] = v2
 
-      # 61..70
+      # 61..66
+
+      case 4 | 67:
+        # 4: try: v%0 = v%1.__next__()\nexcept StopIteration: goto %2
+        # 67: try: %0 = v%1.__next__()\nexcept StopIteration: goto %2
+        get_reg(1, line[2]) # const v1 = regs[line[2]]
+        L = len(codes)
+        try_start = L # метки могут быть, вполне, и просто числами
+        try_end = L + 1
+        catch = -(pos + line[3])
+        extend((
+          (-1, try_start),
+          (110, NextMethod, (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__next__()Lpbi/executor/types/Base;
+          (-1, try_end),
+          (12, 1), # move-result-object v1
+        ))
+        if line[0] == 4: put_reg(line[1], 1) # regs[line[1]] = v1
+        else: put_var(line[1], 1) # var(line[1]) = v1
+
+        # Гениально!!! goto в случае StopIteration использовать напрямую в качестве catch-блока! 
+        # Интересно, что будет с JaDX после этого?! По опыту говорю, что try-catch-finally-конструкции для него - боль
+        # Вывод: надо же... JaDX умеет использовать while (true) { ... }, чтобы имитировать поведение goto внутри catch-смещения
+        try_add((try_start, try_end, ((StopIterationType, catch),), None))
+
+      # 68
+
+      case 69: # v%0 = v%1.__iter__()   (3)
+        get_reg(1, line[2]) # const v1 = regs[line[2]]
+        extend((
+          (110, IterMethod, (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__iter__()Lpbi/executor/types/Base;
+          (12, 1), # move-result-object v1
+        ))
+        put_reg(line[1], 1) # regs[line[1]] = 1
+
+      # 70
 
       case 71..89: # v%0 = v%1 {maths} v%2   (14..32)
         code, out, in1, in2 = line
@@ -420,7 +520,7 @@ def builder(ClassName, inputs, py_codes, local_consts):
         if inout: get_reg(1, line[1], 3) # const v3 = {line[1]}, v1 = regs[v3]
         else: get_reg(1, line[2]) # const v1 = regs[line[2]]
         extend((
-          (110, 'Lpbi/executor/types/Base;->__bool()Z', (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__bool()Z
+          (110, BoolMethod, (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__bool()Z
           (10, 1), # move-result v1
           (56, 1, 5), # if-eqz v1, :{+5 * 2 bytes}   4+4+2 = 10 bytes
           (98, 1, FalseField), # sget-object v1, Lpbi/executor/Main;->False:Lpbi/executor/types/pBoolean;
@@ -480,7 +580,6 @@ def builder(ClassName, inputs, py_codes, local_consts):
 
   # for line in codes: print(line)
 
-  tries = ()
   return (registers, inputs, outsSize, None, codes, tries)
 
 
@@ -492,15 +591,14 @@ def apply_consts(ClassName, extend, append, consts, end):
     name = "c%s" % c_num
     field_name = "%s:%s" % (name, BaseType)
     if T is int:
-      label = ":array_" + name
       b_arr = const.to_bytes(None, "little", True)
-      end((-1, label))
+      end((-1, c_num))
       end((0, 3, 1, b_arr))
       extend((
         (34, 0, BigIntType), # new-instance v0, Lpbi/executor/types/BigInt;
         (18, 1, len(b_arr)), # const v1 = {len(b_arr)}
         (35, (1, 1), '[B'), # new-array v1, v1, [B
-        (38, 1, label), # fill_array_data v1, {label}
+        (38, 1, c_num), # fill_array_data v1, {c_num}
         (112, BigIntCtor, (0, 1)), # invoke-direct {v0, v1}, Lpbi/executor/types/BigInt;-><init>([B)V
         (105, 0, '%s->%s' % (ClassName, field_name)), # sput-object v0, {...}
       ))
@@ -529,14 +627,13 @@ def apply_consts(ClassName, extend, append, consts, end):
         (105, 0, '%s->%s' % (ClassName, field_name)), # sput-object v0, {...}
       ))
     elif T is bytes:
-      label = ":array_" + name
-      end((-1, label))
+      end((-1, c_num))
       end((0, 3, 1, const))
       extend((
         (34, 0, BytesType), # new-instance v0, Lpbi/executor/types/Bytes;
         (18, 1, len(const)), # const v1 = {len(b_arr)}
         (35, (1, 1), '[B'), # new-array v1, v1, [B
-        (38, 1, label), # fill_array_data v1, {label}
+        (38, 1, c_num), # fill_array_data v1, {c_num}
         (112, BytesCtor, (0, 1)), # invoke-direct {v0, v1}, Lpbi/executor/types/Bytes;-><init>([B)V
         (105, 0, '%s->%s' % (ClassName, field_name)), # sput-object v0, {...}
       ))
