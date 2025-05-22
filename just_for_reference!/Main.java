@@ -843,10 +843,9 @@ public class Main {
         /* case 10: // константу в регистр
           regs[i0data[pos]] = consts[i1data[pos]];
           break;*/
-        case 11: // переменную в регистр
-          throw new Exception("11 недопустим");
+        /*case 11: // переменную в регистр
           // regs[i0data[pos]] = get_var(env, i1data[pos]);
-          // break;
+          // break;*/
         case 12: // регистр в переменную
           reg = i1data[pos];
           obj = regs[reg];
@@ -1114,18 +1113,18 @@ public class Main {
           reg = i1data[pos];
           regs[i0data[pos]] = regs[reg].__enter__();
           break;
-        case 55: { // ifn v{reg}.__exit__(type(last_exception), last_exception, None): raise last_exception
+        case 55: { // ifn v%0.__exit__(type(last_exception), last_exception, None): raise last_exception
           reg = i0data[pos];
           if (last_exc instanceof PyException) {
             PyException exc = (PyException) last_exc;
             last_exc = None;
-            Base alarm = regs[reg].__exit__(exc.__type__(), exc, None);
+            Base alarm = regs[reg].__exit__(exc.__type__(), exc);
             if (!alarm.__bool()) throw exc.err;
             // exc.__raise__() очищает stackTrace!!! Так здесь делать нельзя, поэтому throw exc.err;
             // Очистка stackTrace введена ТОЛЬКО на тот случай если будет использоваться тип исключения напрямую вместо
             //   его экземпляра, что оригинальный Python ещё как допускает, иначе бы он копился в этом типе исключения бесконечно
           } else
-            regs[reg].__exit__(None, None, None);
+            regs[reg].__exit__(None, None);
           break; }
         case 56: // v%0.add(v%1)
           reg = i0data[pos];

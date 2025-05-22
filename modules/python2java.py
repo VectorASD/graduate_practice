@@ -59,12 +59,15 @@ JavaWrapType = "Lpbi/executor/types/JavaWrap;"
 NameErrorType = "Lpbi/executor/exceptions/NameError;"
 ValueErrorType = "Lpbi/executor/exceptions/ValueError;"
 StopIterationType = "Lpbi/executor/exceptions/StopIteration;"
+PyExceptionType = "Lpbi/executor/exceptions/PyException;"
 
 # Поля
 
 GlobalsField = "->globals:" + BaseArrType
 VoidArrField = "->void_arr:" + BaseArrType
 VoidMapField = "->void_map:Ljava/util/Map;"
+LastExcField = "->last_exc:" + BaseType
+
 BuiltinsField = "%s->builtins_arr:%s" % (CoreType, BaseArrType)
 NoneField = "%s->None:%s" % (CoreType, NoneType)
 TrueField = "%s->True:%s" % (CoreType, BooleanType)
@@ -111,6 +114,8 @@ BoolMethod = BaseType + "->__bool()Z"
 IterMethod = "%s->__iter__()%s" % (BaseType, BaseType)
 NextMethod = "%s->__next__()%s" % (BaseType, BaseType)
 AppendMethod = "%s->append(%s)V" % (BaseType, BaseType)
+EnterMethod = "%s->__enter__()%s" % (BaseType, BaseType)
+ExitMethod = "%s->__exit__(%s%s)%s" % ((BaseType,) * 4)
 
 """ TODOs:
 Разделить вызов функций на их вызов и присвоение в регистр результата вызова (например, у всех print бессмысленное присвоение их None-результата в regs[0])
@@ -246,8 +251,8 @@ def builder(ClassName, inputs, py_codes, local_consts):
 
   for pos, line in enumerate(py_codes):
     # Коды оставшихся операций:
-    # 10, 11, 12, 13, 39, 41, 42, 44, 46, 47, 48, 49, 50,
-    # 54, 55, 56, 57, 58, 61, 62, 63, 64, 65, 66, 68, 70, 98, 99
+    # 12, 13, 41, 42, 44, 46, 47, 48, 49, 50,
+    # 56, 57, 58, 61, 62, 63, 64, 65, 66, 68, 70, 98, 99
     match line[0]:
       case -1: # label
         append((-1, -pos))
@@ -336,7 +341,9 @@ def builder(ClassName, inputs, py_codes, local_consts):
         assert off < 0, "off = %s" % off
         append((40, off)) # goto :{off}
 
-      # 10..13
+      case 10..11: 1/0
+
+      # 12..13
 
       case 14..32: # v%0 {maths}= v%1
         code, in1, in2 = line
@@ -390,7 +397,16 @@ def builder(ClassName, inputs, py_codes, local_consts):
         ))
         put_reg(line[1], 1) # regs[line[1]] = v1
 
-      # 39
+      case 39: # v%0 = [v%0]     makelist
+        get_reg(1, line[1], 3) # const v3 = {line[1]}, v1 = regs[v3]
+        extend((
+          (34, 2, 'Ljava/util/ArrayList;'), # new-instance v2, Ljava/util/ArrayList;
+          (112, 'Ljava/util/ArrayList;-><init>()V', (2,)), # invoke-direct {v2}, Ljava/util/ArrayList;-><init>()V
+          (110, 'Ljava/util/ArrayList;->add(Ljava/lang/Object;)Z', (2, 1)), # invoke-virtual {v2, v1}, Ljava/util/ArrayList;->add(Ljava/lang/Object;)Z
+          (34, 1, ListType), # new-instance v1, Lpbi/executor/types/List;
+          (112, ListCtor2, (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/types/List;-><init>(Ljava/util/ArrayList;)V
+          (77, 1, 0, 3), # aput-object v0[v3] = v1
+        ))
 
       case 40: # v%0[v%1] = v%2
         get_reg(1, line[1]) # const v1 = regs[line[1]]
@@ -430,7 +446,45 @@ def builder(ClassName, inputs, py_codes, local_consts):
           (77, 1, 0, 3), # aput-object v0[v3] = v1
         ))
 
-      # 54..58
+      case 54: # v%0 = v%1.__enter__()
+        get_reg(1, line[2]) # const v1 = regs[line[2]]
+        extend((
+          (110, EnterMethod, (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__enter__()Lpbi/executor/types/Base;
+          (12, 1), # move-result-object v1
+        ))
+        put_reg(line[1], 1) # regs[line[1]] = 1
+
+      case 55: # ifn v%0.__exit__(type(last_exception), last_exception, None): raise last_exception
+        # (84, (0, p0), ClassName + LastExcField), # iget-object v0, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
+        # (91, (0, p0), ClassName + LastExcField), # iput-object v0, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
+        L = len(codes)
+        no_throw = L + 1
+        get_reg(1, line[1]) # const v1 = regs[line[1]]
+        extend((
+          (84, (2, p0), ClassName + LastExcField), # iget-object v2, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
+          (32, (3, 2), PyExceptionType), # instance-of v3, v2, Lpbi/executor/exceptions/PyException;
+
+          (56, 3, (L,)), # if-eqz v3, :{L}
+          (31, 2, PyExceptionType), # check-cast v2, Lpbi/executor/exceptions/PyException;
+          (110, 'Lpbi/executor/exceptions/PyException;->__type__()Lpbi/executor/types/Type;', (2,)), # invoke-virtual {v2}, Lpbi/executor/exceptions/PyException;->__type__()Lpbi/executor/types/Type;
+          (12, 3), # move-result-object v3
+          (110, ExitMethod, (1, 3, 2)), # invoke-virtual {v1, v3, v2}, Lpbi/executor/types/Base;->__exit__(Lpbi/executor/types/Base;Lpbi/executor/types/Base;)Lpbi/executor/types/Base;
+          (12, 1), # move-result-object v1
+          (110, BoolMethod, (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__bool()Z
+          (10, 1), # move-result v1
+          (57, 1, (no_throw,)), # if-nez v1, :{L}
+          (84, (1, 2), 'Lpbi/executor/exceptions/PyException;->err:Lpbi/executor/exceptions/RuntimeError;'), # iget-object v1, v2, Lpbi/executor/exceptions/PyException;->err:Lpbi/executor/exceptions/RuntimeError;
+          (39, 1), # throw v1
+
+          (-1, L),
+          (98, 2, NoneField), # sget-object v2, Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;
+          (110, ExitMethod, (1, 2, 2)), # invoke-virtual {v1, v2, v2}, Lpbi/executor/types/Base;->__exit__(Lpbi/executor/types/Base;Lpbi/executor/types/Base;)Lpbi/executor/types/Base;
+
+          (-1, no_throw),
+        ))
+
+
+      # 56..58
 
       case 59: # %0 <- "package%1"
         extend((
@@ -713,6 +767,8 @@ def python2java(code):
     (18, 0, global_regs), # const v0 = {global_regs}
     (35, (0, 0), BaseArrType),  # new-array v0, v0, [Lpbi/executor/types/Base;
     (91, (0, p0), ClassName + GlobalsField), # iput-object v0, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
+    (98, 1, NoneField), # sget-object v1, Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;
+    (91, (1, p0), ClassName + LastExcField), # iput-object v1, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
   ]
   extend = init_codes.extend
   append = init_codes.append
@@ -735,6 +791,7 @@ def python2java(code):
     (IS_STATIC_FIELD, VoidArrField[2:], ACCESS_STATIC | ACCESS_PRIVATE, None, (), None, {}),
     (IS_STATIC_FIELD, VoidMapField[2:], ACCESS_STATIC | ACCESS_PRIVATE, None, (('Ldalvik/annotation/Signature;', ((28, 'value', ((23, '"Ljava/util/Map"'), (23, '"<"'), (23, '"Ljava/lang/String;"'), (23, '"%s"' % BaseType), (23, '">;"'))),), 'system'),), None, {}),
     (IS_INSTANCE_FIELD, GlobalsField[2:], ACCESS_NOFLAGS, None, (), None, {}),
+    (IS_INSTANCE_FIELD, LastExcField[2:], ACCESS_NOFLAGS, None, (), None, {}),
     (IS_DIRECT_METHOD, '<clinit>()V', ACCESS_CONSTRUCTOR | ACCESS_STATIC, None, (),
      (4, 0, 3, None, clinit_codes, ()), {}),
     (IS_DIRECT_METHOD, '<init>()V', ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),

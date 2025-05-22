@@ -48,3 +48,8 @@ for i in range(10):
 print("yeah!")
 
 print([2 ** i for i in (3, 1, 2, 4)])
+
+with BytesIO(): pass # без as
+with BytesIO() as file:
+  file.writeLong(123)
+print(file.getvalue().hex())
