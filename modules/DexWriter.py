@@ -1013,7 +1013,8 @@ def DexWriter(dex_classes):
     write2(registers)
     write2(ins)
     write2(outs)
-    write2(TL)
+    TL_pos = tell()
+    write2(0) # TL
     write4(0) # write4(write_debug(debug))
 
     labels = dalvikAssembler(code_data)
@@ -1022,14 +1023,56 @@ def DexWriter(dex_classes):
 
     # Запись try-блоков:
 
-    # print(tries)
-    tries = tuple(
-      (labels[a], labels[b] - labels[a], tuple(
-        (Type, labels[catch])
-        for Type, catch in catches
-      ), labels[catchAll] if catchAll is not None else None)
-      for a, b, catches, catchAll in tries)
-    # print(tries)
+    # Сам придумал технологию со сжатием посредством edge2idx-словаря из пространства байткода в пространство подинтервалов
+    #print("•", *tries, sep = "\n")
+    tries = sorted(
+      (
+        (labels[a], labels[b], {
+          Type: labels[catch]
+          for Type, catch in catches
+        }, labels[catchAll] if catchAll is not None else None)
+        for a, b, catches, catchAll in tries
+      ), key = lambda x: x[0])
+
+    # print("•", *tries, sep = "\n")
+    edges = set(); add = edges.add
+    for start, end, _, _ in tries:
+      add(start)
+      add(end)
+    edges = sorted(edges)
+    edge2idx = {edge: i for i, edge in enumerate(edges)}
+    storage = tuple([{}, None] for i in range(len(edges)))
+
+    # print(edge2idx)
+    for start, end, ts, catchAll in tries:
+      if end <= start: continue
+      idx_a = edge2idx[start]
+      idx_b = edge2idx[end]
+      for idx in range(idx_a, idx_b):
+        item = storage[idx]
+        item[0].update(ts)
+        if catchAll is not None: item[1] =  catchAll
+      # print("•", idx_a, idx_b, ts, catchAll)
+
+    tries = []; add_sector = tries.append
+    storage = tuple(
+      (sorted(catches.items()), catchAll)
+      for catches, catchAll in storage)
+    # print(storage)
+    prev = None
+    prevIdx = 0
+    for idx, item in enumerate(storage, 1):
+      if item != prev:
+        if item[0] or item[1]:
+          add_sector((edges[prevIdx], edges[idx], *item))
+        prevIdx = idx
+        prev = item
+
+    # print("•", *tries, sep = "\n")
+
+    # Конец моего хитрого алгоритма... ЗАРАБОТАЛО!!!!!
+
+    TL = len(tries)
 
     start = tell()
     seek(TL * 8, 1)
@@ -1057,7 +1100,7 @@ def DexWriter(dex_classes):
       for Type, addr in Catch:
         uleb128(type_d[Type])
         uleb128(addr)
-      if all: write2(CatchAllAddr)
+      if all: uleb128(CatchAllAddr) # НЕ write2(CatchAllAddr)!!!!! На минуточку, эта ошибка прожила все возможные 6 лет!!! Её почти не возможно было заметить, т.к. я толком не обращал внимания на catchall
 
     #print(offs, len(catch_d))
     codes_b.write(b"\0" * (-tell() % 4))
@@ -1065,11 +1108,15 @@ def DexWriter(dex_classes):
 
     seek(start)
     for trie, off in zip(tries, offs):
-      startAddr, insnCount, _, _ = trie
+      startAddr, endAddr, _, _ = trie
+      insnCount = endAddr - startAddr
       write4(startAddr)
       write2(insnCount)
       write2(off)
     codes_b.w_byte(len(catch_d))
+
+    seek(TL_pos)
+    write2(TL)
 
     seek(end) # важно!
     return res

@@ -460,7 +460,7 @@ public class Main {
       "rr|rr|rr|rr|rr|rr|rr|rr|rr|rr|" + // 20 - 29
       "rr|rr|rr|rr|rr|r|rrr|ra|rrs|r|" + // 30 - 39
       "rrr|rsr|vr||r|rb|a|r|v|r|" +      // 40 - 49
-      "r|r|r|r|rr|r|rr|r|rr|vs|" +       // 50 - 59
+      "r|r|r|r|rr|r|rr||rr|vs|" +        // 50 - 59
       "rr|rr|rr|rr|rrr|rrri|vrr|vri|rre|rr|" + // 60 - 69
        "rr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 70 - 79
       "rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 80 - 89
@@ -690,10 +690,11 @@ public class Main {
     PyAssertionError.type,   // AssertionError
     FuT.getattr("clear", FuI),
     Struct.type,
+    FuT.getattr("__import__", FuI),
   };
   static String[] pool_arr = MainPoolArr.pool_arr;
 
-
+  
 
 
 
@@ -1132,8 +1133,7 @@ public class Main {
           reg = i1data[pos];
           ((pSet) obj).add(regs[reg]);
           break;
-        case 57: // v%0 = last_exc
-          regs[i0data[pos]] = last_exc;
+        case 57: // last_exception = None
           last_exc = None;
           break;
         case 58: // if v%0: goto %1

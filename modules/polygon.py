@@ -53,3 +53,21 @@ with BytesIO(): pass # без as
 with BytesIO() as file:
   file.writeLong(123)
 print(file.getvalue().hex())
+
+for error in (KeyError, IndexError, TypeError, AttributeError):
+  try:
+    raise error
+  except KeyError: print("KeyError")
+  except IndexError as e: print("IndexError:", e)
+  except TypeError: print("TypeError")
+  except Exception as e: print("Exception:", e)
+  # TODO: исправить e = None
+
+for i in range(3):
+  try:
+    if i == 0: raise KeyError
+    try:
+      if i == 1: raise KeyError
+    except KeyError: print("outer")
+    if i == 2: raise KeyError
+  except KeyError: print("inner")

@@ -31,9 +31,6 @@ IS_VIRTUAL_METHOD = 3
 import common # dex, context
 import DexWriter # DexWriter
 
-def DVM_name(class_name):
-  return "L%s;" % class_name.replace('.', '/')
-
 
 
 NOT_CHECK_REGS_IN_ARGS = True
@@ -116,6 +113,7 @@ NextMethod = "%s->__next__()%s" % (BaseType, BaseType)
 AppendMethod = "%s->append(%s)V" % (BaseType, BaseType)
 EnterMethod = "%s->__enter__()%s" % (BaseType, BaseType)
 ExitMethod = "%s->__exit__(%s%s)%s" % ((BaseType,) * 4)
+RaiseMethod = "%s->__raise__()%s" % (BaseType, BaseType)
 
 """ TODOs:
 Разделить вызов функций на их вызов и присвоение в регистр результата вызова (например, у всех print бессмысленное присвоение их None-результата в regs[0])
@@ -125,22 +123,27 @@ ExitMethod = "%s->__exit__(%s%s)%s" % ((BaseType,) * 4)
 
 
 
-def builder(ClassName, inputs, py_codes, local_consts):
-  registers = 5
-  outsSize = 3 # пока не разобрался, как ЭТО правильно считать...
+def DVM_name(class_name):
+  return "L%s;" % class_name.replace('.', '/')
 
-  p0 = registers - inputs # экземпляр pbi.eval.Main
-  # p1 = p0 + 1 # аргумент pbi.executor.RegLocs
+def builtins():
+  class_name, field = BuiltinsField.split("->", 1)
+  field_name, field_type = field.split(":", 1)
+  # print(class_name, field_name, field_type)
+  return getattr(__import__(class_name), "_f_" + field_name)
+  # Иногда даже у getattr появляется смысл существования... Т.к. не все имена атрибутов возможно обфусцировать ;"-}
 
-  # v8 - i_arr (здесь: массив констант)
-  # v19 - pos (счётчик команд)
-  # v21 - regs (здесь: v0)
-  # v22 - scope (здесь: ?)
-  # v23 - i0data (здесь: const)
-  # v24 - i1data (здесь: const)
-  # v25 - i2data (здесь: const)
-  # v26 - void_hash_map
+def bultin_expections():
+  PET = __import__(PyExceptionType)
+  return {i : DVM_name(str(item().source))
+    for i, item in enumerate(builtins())
+    if type(item) is type and PET.isAssignableFrom(__import__(item))
+  }
+bultin_expections = bultin_expections()
 
+
+
+def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
   def reg_is_null(reg, py_reg):
     # проверяется reg-регистр на null
     # 4 + 4 + 4 + 6 + 6 + 4 + 6 + 6 + 2 + 4 + 6 + 2 = 54 bytes
@@ -233,6 +236,23 @@ def builder(ClassName, inputs, py_codes, local_consts):
     # 4 + 10 * strings + 6 * integers + 6 + 2 + 6 * (если type(items[0]) is int)
     # = 12 + 10 * strings + 6 * (integers + (если type(items[0]) is int)) 
 
+
+
+  registers = 5
+  outsSize = 3 # пока не разобрался, как ЭТО правильно считать...
+
+  p0 = registers - inputs # экземпляр pbi.eval.Main
+  # p1 = p0 + 1 # аргумент pbi.executor.RegLocs
+
+  # v8 - i_arr (здесь: массив констант)
+  # v19 - pos (счётчик команд)
+  # v21 - regs (здесь: v0)
+  # v22 - scope (здесь: ?)
+  # v23 - i0data (здесь: const)
+  # v24 - i1data (здесь: const)
+  # v25 - i2data (здесь: const)
+  # v26 - void_hash_map
+
   codes = [
     # (7, 0, p1), # move-object v0, p1
     # (84, (0, 0), 'Lpbi/executor/RegLocs;->regs:[Lpbi/executor/types/Base;'), # iget-object v0, v0, Lpbi/executor/RegLocs;->regs:[Lpbi/executor/types/Base;
@@ -249,9 +269,37 @@ def builder(ClassName, inputs, py_codes, local_consts):
   #   try: print(line, pos + line[LINKS[line[0]]])
   #   except KeyError: pass
 
+  starts = {}
+  for item in py_tries:
+    ts = item[2]
+    if ts:
+      start = item[0]
+      try: items = starts[start]
+      except KeyError: items = starts[start] = []
+      items.extend(ts)
+  exc_types = {}
+  for pos, line in enumerate(py_codes):
+    try:
+      items = starts[pos]
+      try: exc_types[pos] = {reg : analysis[reg] for reg, label in items}
+      except KeyError: raise Exception("Тип исключения не обнаружен (reg:%s)" % reg)
+    except KeyError: pass
+    try:
+      match line[0]:
+        case 59: # %0 <- "package%1"
+          analysis[line[1]] = line[2]
+        case 60: # v%0 = reg v%1
+          analysis[line[1]] = analysis[line[2]]
+    except KeyError: pass
+
+  for a, b, ts, to in py_tries:
+    ts = tuple((exc_types[a][reg], -label) for reg, label in ts)
+    try_add((-a, -b, ts, -to if to >= 0 else None))
+    # print("tries:", -a, -b, ts, -to if to >= 0 else None)
+
   for pos, line in enumerate(py_codes):
     # Коды оставшихся операций:
-    # 12, 13, 41, 42, 44, 46, 47, 48, 49, 50,
+    # 12, 13, 41, 42, 44, 46, 47, 50,
     # 56, 57, 58, 61, 62, 63, 64, 65, 66, 68, 70, 98, 99
     match line[0]:
       case -1: # label
@@ -435,7 +483,21 @@ def builder(ClassName, inputs, py_codes, local_consts):
         ))
         put_reg(line[1], 2) # regs[line[1]] = v2
 
-      # 46..50
+      # 46..47
+
+      case 48: # %0 = last_exception
+        append((84, (1, p0), ClassName + LastExcField)) # iget-object v1, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
+        put_var(line[1], 1) # var(line[1]) = v1
+        extend((
+          (98, 1, NoneField), # sget-object v1, Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;
+          (91, (1, p0), ClassName + LastExcField), # iput-object v1, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
+        ))
+
+      case 49: # raise v%0
+        get_reg(1, line[1]) # const v1 = regs[line[1]]
+        append((110, RaiseMethod, (1,))) # invoke-virtual {v1}, Lpbi/executor/types/Base;->__raise__()Lpbi/executor/types/Base;
+
+      # 50
 
       case 51..53: # v%0 = {unars}v%0
         code, inout = line
@@ -483,8 +545,15 @@ def builder(ClassName, inputs, py_codes, local_consts):
           (-1, no_throw),
         ))
 
+      # 56
 
-      # 56..58
+      case 57: # last_exception = None
+        extend((
+          (98, 1, NoneField), # sget-object v1, Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;
+          (91, (1, p0), ClassName + LastExcField), # iput-object v1, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
+        ))
+
+      # 58
 
       case 59: # %0 <- "package%1"
         extend((
@@ -720,6 +789,12 @@ def python2java(code):
   defs, b_links, consts = code
   print("b_links:", b_links)
   print("consts:", consts)
+
+  analysis = {}
+  for idx, reg in b_links:
+    try: analysis[reg] = bultin_expections[idx]
+    except KeyError: pass
+
   for id, (counts, args, codes, labels, tries, local_consts) in enumerate(defs):
     rln_count, names = counts
     local_consts = {k: v for k, v in local_consts}
@@ -732,13 +807,13 @@ def python2java(code):
     for line in codes:
       print("•", line)
     print("labels:", labels)
-    print("tries:", tries)
+    # print("tries:", tries)
     print("local_consts:", local_consts)
 
     assert id == 0
 
     inputs = 1
-    module_func = builder(ClassName, inputs, codes, local_consts)
+    module_func = builder(ClassName, inputs, codes, tries, local_consts, analysis)
 
   print("~" * 53)
 
