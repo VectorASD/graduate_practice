@@ -57,6 +57,7 @@ NameErrorType = "Lpbi/executor/exceptions/NameError;"
 ValueErrorType = "Lpbi/executor/exceptions/ValueError;"
 StopIterationType = "Lpbi/executor/exceptions/StopIteration;"
 PyExceptionType = "Lpbi/executor/exceptions/PyException;"
+RuntimeErrorType = "Lpbi/executor/exceptions/RuntimeError;"
 
 # Поля
 
@@ -69,6 +70,7 @@ BuiltinsField = "%s->builtins_arr:%s" % (CoreType, BaseArrType)
 NoneField = "%s->None:%s" % (CoreType, NoneType)
 TrueField = "%s->True:%s" % (CoreType, BooleanType)
 FalseField = "%s->False:%s" % (CoreType, BooleanType)
+ErrorField = "%s->err:%s" % (RuntimeErrorType, PyExceptionType)
 
 # КонструкТОРы типов
 
@@ -304,7 +306,7 @@ def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
     match line[0]:
       case -1: # label
         append((-1, -pos))
-        print("label:", -pos)
+        # print("label:", -pos)
 
       case 0: # v%0 = [%1 None-items]     makelist
         extend((
@@ -486,12 +488,13 @@ def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
       # 46..47
 
       case 48: # %0 = last_exception
-        append((84, (1, p0), ClassName + LastExcField)) # iget-object v1, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
-        put_var(line[1], 1) # var(line[1]) = v1
         extend((
-          (98, 1, NoneField), # sget-object v1, Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;
+          (13, 1), # move-exception v1
+          # (31, 1, RuntimeErrorType), # check-cast v1, Lpbi/executor/exceptions/RuntimeError;
+          (84, (1, 1), ErrorField), # iget-object v1, v1, Lpbi/executor/exceptions/RuntimeError;->err:Lpbi/executor/exceptions/PyException;
           (91, (1, p0), ClassName + LastExcField), # iput-object v1, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
         ))
+        put_var(line[1], 1) # var(line[1]) = v1
 
       case 49: # raise v%0
         get_reg(1, line[1]) # const v1 = regs[line[1]]
@@ -517,8 +520,6 @@ def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
         put_reg(line[1], 1) # regs[line[1]] = 1
 
       case 55: # ifn v%0.__exit__(type(last_exception), last_exception, None): raise last_exception
-        # (84, (0, p0), ClassName + LastExcField), # iget-object v0, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
-        # (91, (0, p0), ClassName + LastExcField), # iput-object v0, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
         L = len(codes)
         no_throw = L + 1
         get_reg(1, line[1]) # const v1 = regs[line[1]]

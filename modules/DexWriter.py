@@ -1041,7 +1041,7 @@ def DexWriter(dex_classes):
       add(end)
     edges = sorted(edges)
     edge2idx = {edge: i for i, edge in enumerate(edges)}
-    storage = tuple([{}, None] for i in range(len(edges)))
+    storage = tuple([{}, None, []] for i in range(len(edges)))
 
     # print(edge2idx)
     for start, end, ts, catchAll in tries:
@@ -1050,15 +1050,21 @@ def DexWriter(dex_classes):
       idx_b = edge2idx[end]
       for idx in range(idx_a, idx_b):
         item = storage[idx]
-        item[0].update(ts)
-        if catchAll is not None: item[1] =  catchAll
+        _dict = item[0]
+        order_add = item[2].append
+        for catch in ts:
+          if catch not in _dict: order_add(catch)
+        _dict.update(ts)
+        if catchAll is not None: item[1] = catchAll
       # print("•", idx_a, idx_b, ts, catchAll)
 
-    tries = []; add_sector = tries.append
+    # print("\nstorage:", *storage, sep="\n")
     storage = tuple(
-      (sorted(catches.items()), catchAll)
-      for catches, catchAll in storage)
-    # print(storage)
+      (tuple((Type, catches[Type]) for Type in order), catchAll)
+      for catches, catchAll, order in storage)
+    # print("\nstorage:", *storage, sep="\n")
+
+    tries = []; add_sector = tries.append
     prev = None
     prevIdx = 0
     for idx, item in enumerate(storage, 1):
