@@ -1,3 +1,4 @@
+"""
 var = 123
 print(var) # начинаем с малого
 print() # без аргументов
@@ -70,3 +71,16 @@ for i in range(3):
     except KeyError: print("outer")
     if i == 2: raise KeyError
   except KeyError: print("inner")
+"""
+
+_dict1 = {}
+_dict2 = {1: "a"}
+_dict3 = {1: "a", 2: "b"}
+print(_dict1, _dict2, _dict3, {k : k ** 5 % 7 for k in range(1, 7)})
+
+def simple():
+  print("yeah!")
+  return 123
+
+print(simple)
+print("returned:", simple())

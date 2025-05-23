@@ -49,7 +49,9 @@ StringType = "Lpbi/executor/types/pString;"
 BytesType = "Lpbi/executor/types/Bytes;"
 ListType = "Lpbi/executor/types/List;"
 TupleType = "Lpbi/executor/types/Tuple;"
+DictType = "Lpbi/executor/types/Dict;"
 JavaWrapType = "Lpbi/executor/types/JavaWrap;"
+TypeType = "Lpbi/executor/types/Type;"
 
 # Исключения
 
@@ -62,9 +64,12 @@ RuntimeErrorType = "Lpbi/executor/exceptions/RuntimeError;"
 # Поля
 
 GlobalsField = "->globals:" + BaseArrType
+LocalsField = "->locals:" + BaseArrType
+TypeField = "->type:" + TypeType
+LastExcField = "->last_exc:" + BaseType
+
 VoidArrField = "->void_arr:" + BaseArrType
 VoidMapField = "->void_map:Ljava/util/Map;"
-LastExcField = "->last_exc:" + BaseType
 
 BuiltinsField = "%s->builtins_arr:%s" % (CoreType, BaseArrType)
 NoneField = "%s->None:%s" % (CoreType, NoneType)
@@ -82,7 +87,9 @@ ListCtor = ListType + "-><init>()V"
 ListCtor2 = ListType + "-><init>(Ljava/util/ArrayList;)V"
 ListCtor3 = ListType + "-><init>(I)V"
 TupleCtor = "%s-><init>(%s)V" % (TupleType, BaseArrType)
+DictCtor = DictType + "-><init>()V"
 JavaWrapCtor = JavaWrapType + "-><init>(Ljava/lang/String;)V"
+TypeCtor = TypeType + "-><init>(Ljava/lang/Class;Ljava/lang/String;)V"
 
 # КонструкТОРы исключений
 
@@ -101,7 +108,9 @@ UnaryMethods = tuple('%s->%s()%s' % (BaseType, operation, BaseType) for operatio
 
 # Остальные методы
 
-CallerMethod = "%s->__call__(%sLjava/util/Map;)%s" % (BaseType, BaseArrType, BaseType)
+CallerProto = "__call__(%sLjava/util/Map;)%s" % (BaseArrType, BaseType)
+
+CallerMethod = "%s->%s" % (BaseType, CallerProto)
 ContainsMethod = "%s->__contains__(%s)%s" % (BaseType, BaseType, BooleanType)
 SetItemMethod = "%s->__setitem__(I%s)V" % (BaseType, BaseType)
 SetItemMethod2 = "%s->__setitem__(%s%s)V" % (BaseType, BaseType, BaseType)
@@ -145,7 +154,7 @@ bultin_expections = bultin_expections()
 
 
 
-def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
+def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analysis):
   def reg_is_null(reg, py_reg):
     # проверяется reg-регистр на null
     # 4 + 4 + 4 + 6 + 6 + 4 + 6 + 6 + 2 + 4 + 6 + 2 = 54 bytes
@@ -244,7 +253,8 @@ def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
   outsSize = 3 # пока не разобрался, как ЭТО правильно считать...
 
   p0 = registers - inputs # экземпляр pbi.eval.Main
-  # p1 = p0 + 1 # аргумент pbi.executor.RegLocs
+  if inputs > 1:
+    p1 = p0 + 1 # аргумент локальных регистров
 
   # v8 - i_arr (здесь: массив констант)
   # v19 - pos (счётчик команд)
@@ -255,11 +265,11 @@ def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
   # v25 - i2data (здесь: const)
   # v26 - void_hash_map
 
-  codes = [
-    # (7, 0, p1), # move-object v0, p1
-    # (84, (0, 0), 'Lpbi/executor/RegLocs;->regs:[Lpbi/executor/types/Base;'), # iget-object v0, v0, Lpbi/executor/RegLocs;->regs:[Lpbi/executor/types/Base;
-    (84, (0, p0), ClassName + GlobalsField), # iget-object v0, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
-  ]
+  if inputs == 1:
+    codes = [(84, (0, p0), ClassName + GlobalsField)] # iget-object v0, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
+  else: # inputs == 2
+    codes = [(7, 0, p1)] # move-object v0, p1
+
   extend = codes.extend
   append = codes.append
 
@@ -301,8 +311,8 @@ def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
 
   for pos, line in enumerate(py_codes):
     # Коды оставшихся операций:
-    # 12, 13, 41, 42, 44, 46, 47, 50,
-    # 56, 57, 58, 61, 62, 63, 64, 65, 66, 68, 70, 98, 99
+    # 12, 13, 41, 46, 50,
+    # 56, 57, 58, 64, 65, 66, 68, 70, 98, 99
     match line[0]:
       case -1: # label
         append((-1, -pos))
@@ -464,7 +474,16 @@ def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
         get_reg(3, line[3]) # const v3 = regs[line[3]]
         append((110, SetItemMethod2, (1, 2, 3))) # invoke-virtual {v1, v2, v3}, Lpbi/executor/types/Base;->__setitem__(Lpbi/executor/types/Base;Lpbi/executor/types/Base;)V
 
-      # 41..42
+      # 41
+
+      case 42: # %0 = def #%1     (function)
+        WrapType = id2name(line[2])
+        WrapCtor = "%s-><init>(%s)V" % (WrapType, ClassName)
+        extend((
+          (34, 1, WrapType), # new-instance v1, {WrapType}
+          (112, WrapCtor, (1, p0)), # invoke-direct {v1, p0}, {WrapType}-><init>({ClassName})V
+        ))
+        put_var(line[1], 1) # var(line[1]) = v1
 
       case 43: # return
         extend((
@@ -472,7 +491,9 @@ def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
           (17, 0), # return-object v0
         ))
 
-      # 44
+      case 44: # return v%0
+        get_reg(0, line[1]) # const v0 = regs[line[1]]
+        append((17, 0)) # return-object v0
 
       case 45: # v%0 = tuple(v%1_args)
         starred = any(is_star for reg, is_star in line[2])
@@ -485,7 +506,14 @@ def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
         ))
         put_reg(line[1], 2) # regs[line[1]] = v2
 
-      # 46..47
+      # 46
+
+      case 47: # v%0 = dict()
+        extend((
+          (34, 1, DictType), # new-instance v1, Lpbi/executor/types/Dict;
+          (112, DictCtor, (1,)), # invoke-direct {v1}, Lpbi/executor/types/Dict;-><init>()V
+        ))
+        put_reg(line[1], 1) # regs[line[1]] = v1
 
       case 48: # %0 = last_exception
         extend((
@@ -569,7 +597,19 @@ def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
         get_reg(2, line[2]) # const v2 = regs[line[2]]
         append((77, 2, 0, 1)) # aput-object v0[v1] = v2
 
-      # 61..66
+      case 61: 1/0
+
+      case 62: # v%0 = global %1
+        extend((
+          (84, (1, p0), ClassName + GlobalsField), # iget-object v1, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
+          (18, 2, line[2]), # const v2 = {line[2]}
+          (70, 1, 1, 2), # aget-object v1 = v1[v2]
+        ))
+        put_reg(line[1], 1) # regs[line[1]] = 1
+
+      case 63: 1/0
+
+      # 64..66
 
       case 4 | 67:
         # 4: try: v%0 = v%1.__next__()\nexcept StopIteration: goto %2
@@ -700,7 +740,9 @@ def builder(ClassName, inputs, py_codes, py_tries, local_consts, analysis):
 
       # 98..99
 
-      case _: raise Exception("code_%s not supported!" % line[0])
+      case _:
+        # print("code_%s not supported!" % line[0])
+        raise Exception("code_%s not supported!" % line[0])
 
   # for line in codes: print(line)
 
@@ -783,21 +825,107 @@ def apply_consts(ClassName, extend, append, consts, end):
 
 
 
+def method_wrapper(id2name, id, ClassName, name, state):
+  (rln_count, names), args, codes, labels, tries, local_consts = state
+
+  WrapName = id2name(id)
+  MainFieldProto = "main:" + ClassName
+  MainField = "%s->%s" % (WrapName, MainFieldProto)
+
+  clinit_codes = (
+    (34, 0, TypeType), # new-instance v0, Lpbi/executor/types/Type;
+    (28, 1, WrapName), # const-class v1, {WrapName}
+    (26, 2, "wrapper"), # const-string v2, "wrapper"
+    (112, TypeCtor, (0, 1, 2)), # invoke-direct {v0, v1, v2}, Lpbi/executor/types/Type;-><init>(Ljava/lang/Class;Ljava/lang/String;)V
+    (105, 0, WrapName + TypeField), # sput-object v0, {WrapName}->type:Lpbi/executor/types/Type;
+    (14,), # return-void
+  )
+  clinit_method = (IS_DIRECT_METHOD, "<clinit>()V", ACCESS_CONSTRUCTOR | ACCESS_STATIC, None, (),
+   (3, 0, 3, None, clinit_codes, ()), {})
+
+  registers = 3
+  inputs = 2
+  p0 = registers - inputs # this
+  p1 = p0 + 1 # pbi.eval.Main
+
+  init_codes = (
+    (112, BaseType + "-><init>()V", (p0,)), # invoke-direct {p0}, Lpbi/lang/Object;-><init>()V
+    (18, 0, rln_count), # const v0 = {rln_count}
+    (35, (0, 0), BaseArrType),  # new-array v0, v0, [Lpbi/executor/types/Base;
+    (91, (0, p0), WrapName + LocalsField), # iput-object v0, p0, {WrapName}->locals:[Lpbi/executor/types/Base;
+    (91, (p1, p0), MainField), # iput-object p1, p0, {WrapName}->main:{ClassName}
+    (14,), # return-void
+  )
+  init_method = (IS_DIRECT_METHOD, "<init>(%s)V" % ClassName, ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
+    (registers, inputs, 1, None, init_codes, ()), {})
+
+  registers = 6
+  inputs = 3
+  p0 = registers - inputs # this
+  p1 = p0 + 1 # args
+  p2 = p0 + 2 # kw_args
+
+  caller_codes = (
+    (18, 0, 0), # const/4 v0, 0x0
+    (18, 1, rln_count), # const v1 = {rln_count}
+    (84, (2, p0), WrapName + LocalsField), # iget-object v2, p0, {WrapName}->locals:[Lpbi/executor/types/Base;
+    (113, 'Ljava/util/Arrays;->fill([Ljava/lang/Object;IILjava/lang/Object;)V', (2, 0, 1, 0)), # invoke-static {v2, v0, v1, v0}, Ljava/util/Arrays;->fill([Ljava/lang/Object;IILjava/lang/Object;)V
+    (84, (0, p0), MainField), # iget-object v0, p0, {WrapName}->main:{ClassName}
+    (110, name, (0, 2)), # invoke-virtual {v0, v2}, Lpbi/eval/Main;->func_1([Lpbi/executor/types/Base;)Lpbi/executor/types/Base;
+    (12, 0), # move-result-object v0
+    (17, 0), # return-object v0
+  )
+  caller_method = (IS_VIRTUAL_METHOD, CallerProto, ACCESS_PUBLIC, None, (),
+    (registers, inputs, 4, None, caller_codes, ()), {})
+
+  return (WrapName,
+   ACCESS_PUBLIC,
+   BaseType,
+   (), None, (),
+   (
+    (IS_STATIC_FIELD, TypeField[2:], ACCESS_STATIC, None, (), None, {}),
+    (IS_INSTANCE_FIELD, MainFieldProto, ACCESS_NOFLAGS, None, (), None, {}),
+    (IS_INSTANCE_FIELD, LocalsField[2:], ACCESS_NOFLAGS, None, (), None, {}),
+     clinit_method,
+     init_method,
+     caller_method,
+    (IS_VIRTUAL_METHOD, "__repr__()Ljava/lang/String;", ACCESS_PUBLIC, None, (),
+     (2, 1, 0, None, (
+       (26, 0, "<wrapper def#%s>" % id), # const-string v0, {...}
+       (17, 0), # return-object v0
+      ), ()), {}),
+    (IS_VIRTUAL_METHOD, "__type__()" + TypeType, ACCESS_PUBLIC, None, (),
+     (2, 1, 0, None, (
+       (98, 0, WrapName + TypeField), # sget-object v0, {WrapName}->type:Lpbi/executor/types/Type;
+       (17, 0), # return-object v0
+      ), ()), {}),
+    (IS_VIRTUAL_METHOD, "isdef()" + BooleanType, ACCESS_PUBLIC, None, (),
+     (2, 1, 0, None, (
+       (98, 0, TrueField), # sget-object v0, Lpbi/executor/Main;->True:Lpbi/executor/types/pBoolean;
+       (17, 0), # return-object v0
+      ), ()), {}),
+   )
+  )
+
+
+
 def python2java(code):
   jClassName = "pbi.eval.Main"
   ClassName = DVM_name(jClassName)
+  jWrapName = "pbi.eval.Func%s"
+
+  def id2name(id):
+    return DVM_name(jWrapName % id)
 
   defs, b_links, consts = code
   print("b_links:", b_links)
   print("consts:", consts)
 
-  analysis = {}
-  for idx, reg in b_links:
-    try: analysis[reg] = bultin_expections[idx]
-    except KeyError: pass
+  functions = []
+  classes = []
 
-  for id, (counts, args, codes, labels, tries, local_consts) in enumerate(defs):
-    rln_count, names = counts
+  for id, state in enumerate(defs):
+    (rln_count, names), args, codes, labels, tries, local_consts = state
     local_consts = {k: v for k, v in local_consts}
 
     print("~" * 53)
@@ -811,15 +939,28 @@ def python2java(code):
     # print("tries:", tries)
     print("local_consts:", local_consts)
 
-    assert id == 0
+    analysis = {}
+    if id:
+      name = "func_%s(%s)%s" % (id, BaseArrType, BaseType)
+      classes.append(method_wrapper(id2name, id, ClassName, "%s->%s" % (ClassName, name), state))
+      inputs = 2
+    else:
+      name = "module()" + BaseType
+      global_regs = rln_count
+      for idx, reg in b_links:
+        try: analysis[reg] = bultin_expections[idx]
+        except KeyError: pass
+      inputs = 1
 
-    inputs = 1
-    module_func = builder(ClassName, inputs, codes, tries, local_consts, analysis)
+    annot = ('Ldalvik/annotation/Throws;', ((28, 'value', ((24, RuntimeErrorType),)),), 'system')
+
+    functions.append((
+      IS_VIRTUAL_METHOD, name, ACCESS_NOFLAGS, None, (annot,),
+      builder(ClassName, inputs, id2name, codes, tries, local_consts, analysis),
+      {}
+    ))
 
   print("~" * 53)
-
-  global_regs = defs[0][0][0]
-  annot = ('Ldalvik/annotation/Throws;', ((28, 'value', ((24, 'Lpbi/executor/exceptions/RuntimeError;'),)),), 'system')
 
   clinit_codes = [
     (34, 0, 'Ljava/util/HashMap;'),              # new-instance v0, Ljava/util/HashMap;
@@ -872,11 +1013,13 @@ def python2java(code):
      (4, 0, 3, None, clinit_codes, ()), {}),
     (IS_DIRECT_METHOD, '<init>()V', ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
      (4, 1, 1, None, init_codes, ()), {}),
-    (IS_VIRTUAL_METHOD, 'module()' + BaseType, ACCESS_NOFLAGS, None, (annot,), module_func, {})
+    *functions
    )
   )
 
-  dexData = DexWriter((class_obj,))
+  classes.append(class_obj)
+
+  dexData = DexWriter(classes)
   with open("/sdcard/Check.dex", "wb") as file:
     file.write(dexData)
 
@@ -887,232 +1030,197 @@ def python2java(code):
 
 """ Результат декомпиляции "polygon.py":
 //
-// Decompiled by Jadx - 1446ms
+// Decompiled by Jadx - 2908ms
 //
 package pbi.eval;
 
-import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Map;
+import pbi.executor.Main;
+import pbi.executor.types.Base;
+import pbi.executor.types.Type;
+import pbi.executor.types.pBoolean;
+
+public class Func1 extends Base {
+    static Type type = new Type(Func1.class, "wrapper");
+    Base[] locals = new Base[4];
+    Main main;
+
+    public Func1(Main main) {
+        this.main = main;
+    }
+
+    public Base __call__(Base[] baseArr, Map map) {
+        Base[] baseArr2 = this.locals;
+        Arrays.fill(baseArr2, 0, 4, (Object) null);
+        return this.main.func_1(baseArr2);
+    }
+
+    public String __repr__() {
+        return "<wrapper def#1>";
+    }
+
+    public Type __type__() {
+        return type;
+    }
+
+    public pBoolean isdef() {
+        return Main.True;
+    }
+}
+
+//
+// Decompiled by Jadx - 755ms
+//
+package pbi.eval;
+
 import java.util.HashMap;
 import java.util.Map;
 import pbi.executor.exceptions.NameError;
 import pbi.executor.exceptions.RuntimeError;
-import pbi.executor.exceptions.ValueError;
+import pbi.executor.exceptions.StopIteration;
 import pbi.executor.types.Base;
 import pbi.executor.types.BigInt;
-import pbi.executor.types.Bytes;
-import pbi.executor.types.List;
-import pbi.executor.types.Tuple;
+import pbi.executor.types.Dict;
 import pbi.executor.types.pString;
 
 public class Main {
     Base[] globals;
+    Base last_exc = pbi.executor.Main.None;
     private static Map<String, Base> void_map = new HashMap();
     private static Base[] void_arr = new Base[0];
-    private static Base c0 = new BigInt(new byte[]{123});
-    private static Base c1 = new BigInt(new byte[]{1});
+    private static Base c0 = new BigInt(new byte[]{1});
+    private static Base c1 = new pString("a");
     private static Base c2 = new BigInt(new byte[]{2});
-    private static Base c3 = new BigInt(new byte[]{3});
-    private static Base c4 = new BigInt(new byte[]{Byte.MAX_VALUE});
-    private static Base c5 = new BigInt(new byte[]{0, Byte.MIN_VALUE});
-    private static Base c6 = new BigInt(new byte[]{-1});
-    private static Base c7 = new BigInt(new byte[]{Byte.MIN_VALUE});
-    private static Base c8 = new BigInt(new byte[]{-1, Byte.MAX_VALUE});
-    private static Base c9 = new Tuple(new Base[]{c1, c2, c3, c4, c5, c6, c7, c8});
-    private static Base c10 = new BigInt(new byte[]{4, -46});
-    private static Base c11 = new BigInt(new byte[]{0});
-    private static Base c12 = new Tuple(new Base[]{c1, c2, c3});
-    private static Base c13 = new pString("Пора добавить оставшиеся типы констант:\nстрока");
-    private static Base c14 = new Bytes(new byte[]{98, 121, 116, 101, 115});
-    private static Base c15 = pbi.executor.Main.None;
-    private static Base c16 = pbi.executor.Main.True;
-    private static Base c17 = pbi.executor.Main.False;
-    private static Base c18 = new BigInt(new byte[]{5});
-    private static Base c19 = new BigInt(new byte[]{4});
-    private static Base c20 = new BigInt(new byte[]{6});
-    private static Base c21 = new Tuple(new Base[]{c19, c18, c20});
-    private static Base c22 = new BigInt(new byte[]{7});
-    private static Base c23 = new BigInt(new byte[]{8});
-    private static Base c24 = new BigInt(new byte[]{9});
-    private static Base c25 = new Tuple(new Base[]{c22, c23, c24});
-    private static Base c26 = new BigInt(new byte[]{-2});
-    private static Base c27 = new BigInt(new byte[]{-5});
+    private static Base c3 = new pString("b");
+    private static Base c4 = new BigInt(new byte[]{7});
+    private static Base c5 = new BigInt(new byte[]{5});
+    private static Base c6 = new pString("yeah!");
+    private static Base c7 = new BigInt(new byte[]{123});
+    private static Base c8 = new pString("returned:");
 
     public Main() {
-        Base[] baseArr = new Base[52];
+        Base[] baseArr = new Base[32];
         this.globals = baseArr;
         Base[] baseArr2 = pbi.executor.Main.builtins_arr;
-        baseArr[17] = baseArr2[0];
-        baseArr[18] = baseArr2[17];
-        baseArr[19] = baseArr2[10];
-        baseArr[20] = baseArr2[11];
-        baseArr[21] = baseArr2[12];
+        baseArr[14] = baseArr2[2];
+        baseArr[15] = baseArr2[0];
+    }
+
+    Base func_1(Base[] baseArr) throws RuntimeError {
+        baseArr[0] = this.globals[15];
+        baseArr[0] = baseArr[0].__call__(new Base[]{c6}, void_map);
+        return c7;
     }
 
     Base module() throws RuntimeError {
         Base[] baseArr = this.globals;
-        baseArr[0] = baseArr[17].__call__(new Base[]{c0}, void_map);
-        baseArr[0] = baseArr[17].__call__(void_arr, void_map);
-        baseArr[0] = baseArr[17].__call__(new Base[]{c9}, void_map);
-        baseArr[1] = c0.__add__(c5);
-        baseArr[2] = c0.__sub__(c5);
-        baseArr[3] = c0.__mul__(c5);
-        baseArr[4] = c5.__truediv__(c2);
-        baseArr[5] = c0.__floordiv__(c2);
-        baseArr[6] = c10.__mod__(c0);
-        baseArr[7] = c0.__pow__(c3);
-        baseArr[0] = baseArr[17].__call__(new Base[]{baseArr[1], baseArr[2], baseArr[3], baseArr[4], baseArr[5], baseArr[6], baseArr[7]}, void_map);
-        baseArr[1] = c10.__and__(c4);
-        baseArr[2] = c10.__xor__(c5);
-        baseArr[3] = c10.__or__(c5);
-        baseArr[4] = c10.__lshift__(c3);
-        baseArr[5] = c10.__rshift__(c3);
-        baseArr[0] = baseArr[17].__call__(new Base[]{baseArr[1], baseArr[2], baseArr[3], baseArr[4], baseArr[5]}, void_map);
-        baseArr[1] = c10.__pos__();
-        baseArr[2] = c10.__neg__();
-        baseArr[3] = c10.__invert__();
-        baseArr[4] = c10.__bool() ? pbi.executor.Main.False : pbi.executor.Main.True;
-        baseArr[5] = c11.__bool() ? pbi.executor.Main.False : pbi.executor.Main.True;
-        baseArr[0] = baseArr[17].__call__(new Base[]{baseArr[1], baseArr[2], baseArr[3], baseArr[4], baseArr[5]}, void_map);
-        baseArr[1] = c1.__lt(c2);
-        baseArr[2] = c1.__eq(c2);
-        baseArr[3] = c1.__gt(c2);
-        baseArr[4] = c1.__le(c2);
-        baseArr[5] = c1.__ne(c2);
-        baseArr[6] = c1.__ge(c2);
-        baseArr[0] = baseArr[17].__call__(new Base[]{baseArr[1], baseArr[2], baseArr[3], baseArr[4], baseArr[5], baseArr[6]}, void_map);
-        baseArr[1] = baseArr[19].__call__(new Base[]{c10}, void_map);
-        Base base = baseArr[1];
+        baseArr[13] = new Dict();
+        baseArr[0] = new Dict();
+        Base base = baseArr[0];
         if (base == null) {
-            throw new NameError("name 'regs:1' is not defined");
+            throw new NameError("name 'regs:0' is not defined");
         }
-        Base base2 = baseArr[20];
+        base.__setitem__(c0, c1);
+        Base base2 = baseArr[0];
         if (base2 == null) {
-            throw new NameError("name 'regs:20' is not defined");
+            throw new NameError("name 'regs:0' is not defined");
         }
-        baseArr[1] = base == base2 ? pbi.executor.Main.True : pbi.executor.Main.False;
-        baseArr[2] = baseArr[19].__call__(new Base[]{c10}, void_map);
-        Base base3 = baseArr[2];
+        baseArr[12] = base2;
+        baseArr[0] = new Dict();
+        Base base3 = baseArr[0];
         if (base3 == null) {
-            throw new NameError("name 'regs:2' is not defined");
+            throw new NameError("name 'regs:0' is not defined");
         }
-        Base base4 = baseArr[18];
+        base3.__setitem__(c0, c1);
+        Base base4 = baseArr[0];
         if (base4 == null) {
-            throw new NameError("name 'regs:18' is not defined");
+            throw new NameError("name 'regs:0' is not defined");
         }
-        baseArr[2] = base3 == base4 ? pbi.executor.Main.True : pbi.executor.Main.False;
-        baseArr[0] = baseArr[17].__call__(new Base[]{baseArr[1], baseArr[2]}, void_map);
-        baseArr[1] = c12.__contains__(c2);
-        baseArr[2] = c12.__contains__(c4);
-        baseArr[0] = baseArr[17].__call__(new Base[]{baseArr[1], baseArr[2]}, void_map);
-        baseArr[0] = baseArr[17].__call__(new Base[]{c13, c14, c15, c16, c17}, void_map);
-        baseArr[12] = new List();
-        Base base5 = c1;
-        ArrayList arrayList = new ArrayList();
-        arrayList.add(base5);
-        baseArr[16] = new List(arrayList);
-        baseArr[0] = new List(3);
-        Base base6 = baseArr[0];
+        base4.__setitem__(c2, c3);
+        Base base5 = baseArr[0];
+        if (base5 == null) {
+            throw new NameError("name 'regs:0' is not defined");
+        }
+        baseArr[11] = base5;
+        Base base6 = baseArr[15];
         if (base6 == null) {
-            throw new NameError("name 'regs:0' is not defined");
+            throw new NameError("name 'regs:15' is not defined");
         }
-        base6.__setitem__(0, c1);
-        Base base7 = baseArr[0];
+        baseArr[0] = base6;
+        Base base7 = baseArr[13];
         if (base7 == null) {
-            throw new NameError("name 'regs:0' is not defined");
+            throw new NameError("name 'regs:13' is not defined");
         }
-        base7.__setitem__(1, c2);
-        Base base8 = baseArr[0];
+        baseArr[1] = base7;
+        Base base8 = baseArr[12];
         if (base8 == null) {
-            throw new NameError("name 'regs:0' is not defined");
+            throw new NameError("name 'regs:12' is not defined");
         }
-        base8.__setitem__(2, c3);
-        Base base9 = baseArr[0];
+        baseArr[2] = base8;
+        Base base9 = baseArr[11];
         if (base9 == null) {
-            throw new NameError("name 'regs:0' is not defined");
-        }
-        baseArr[10] = base9;
-        Base base10 = baseArr[10];
-        if (base10 == null) {
-            throw new NameError("name 'regs:10' is not defined");
-        }
-        baseArr[0] = base10.__getitem__(-1);
-        Base base11 = baseArr[0];
-        if (base11 == null) {
-            throw new NameError("name 'regs:0' is not defined");
-        }
-        baseArr[0] = base11.__mul__(c18);
-        Base base12 = baseArr[10];
-        if (base12 == null) {
-            throw new NameError("name 'regs:10' is not defined");
-        }
-        Base base13 = baseArr[0];
-        if (base13 == null) {
-            throw new NameError("name 'regs:0' is not defined");
-        }
-        base12.__setitem__(0, base13);
-        baseArr[0] = baseArr[17].__call__(new Base[]{baseArr[12], baseArr[16], baseArr[10]}, void_map);
-        Base base14 = baseArr[10];
-        if (base14 == null) {
-            throw new NameError("name 'regs:10' is not defined");
-        }
-        int __len = base14.__len();
-        if (__len > 3) {
-            throw new ValueError("too many values to unpack (expected 3)");
-        }
-        if (__len < 3) {
-            throw new ValueError("not enough values to unpack (expected 3, got" + __len + ")");
-        }
-        Base base15 = baseArr[10];
-        if (base15 == null) {
-            throw new NameError("name 'regs:10' is not defined");
-        }
-        baseArr[14] = base15.__getitem__(0);
-        Base base16 = baseArr[10];
-        if (base16 == null) {
-            throw new NameError("name 'regs:10' is not defined");
-        }
-        baseArr[13] = base16.__getitem__(1);
-        Base base17 = baseArr[10];
-        if (base17 == null) {
-            throw new NameError("name 'regs:10' is not defined");
-        }
-        baseArr[15] = base17.__getitem__(2);
-        baseArr[11] = new Tuple(new Base[]{baseArr[14], baseArr[13], baseArr[13], baseArr[15], baseArr[13], baseArr[14], baseArr[15]});
-        baseArr[0] = baseArr[17].__call__(new Base[]{baseArr[11]}, void_map);
-        baseArr[2] = baseArr[21].__call__(new Base[]{c2, c6}, void_map);
-        Base base18 = baseArr[11];
-        if (base18 == null) {
             throw new NameError("name 'regs:11' is not defined");
         }
-        Base base19 = baseArr[2];
-        if (base19 == null) {
-            throw new NameError("name 'regs:2' is not defined");
+        baseArr[3] = base9;
+        baseArr[4] = new Dict();
+        baseArr[6] = c0;
+        baseArr[7] = c4;
+        baseArr[5] = baseArr[14].__call__(new Base[]{baseArr[6], baseArr[7]}, void_map);
+        Base base10 = baseArr[5];
+        if (base10 == null) {
+            throw new NameError("name 'regs:5' is not defined");
         }
-        baseArr[1] = base18.__getitem__(base19);
-        baseArr[0] = baseArr[17].__call__(new Base[]{baseArr[1]}, void_map);
-        baseArr[2] = baseArr[21].__call__(new Base[]{c1, c2}, void_map);
-        Base base20 = baseArr[10];
-        if (base20 == null) {
-            throw new NameError("name 'regs:10' is not defined");
+        baseArr[5] = base10.__iter__();
+        while (true) {
+            Base base11 = baseArr[5];
+            if (base11 == null) {
+                throw new NameError("name 'regs:5' is not defined");
+            }
+            try {
+                baseArr[9] = base11.__next__();
+                Base base12 = baseArr[9];
+                if (base12 == null) {
+                    throw new NameError("name 'regs:9' is not defined");
+                }
+                baseArr[6] = base12;
+                Base base13 = baseArr[9];
+                if (base13 == null) {
+                    throw new NameError("name 'regs:9' is not defined");
+                }
+                baseArr[7] = base13.__pow__(c5);
+                baseArr[8] = c4;
+                Base base14 = baseArr[7];
+                if (base14 == null) {
+                    throw new NameError("name 'regs:7' is not defined");
+                }
+                Base base15 = baseArr[8];
+                if (base15 == null) {
+                    throw new NameError("name 'regs:8' is not defined");
+                }
+                baseArr[7] = base14.__mod__(base15);
+                Base base16 = baseArr[4];
+                if (base16 == null) {
+                    throw new NameError("name 'regs:4' is not defined");
+                }
+                Base base17 = baseArr[6];
+                if (base17 == null) {
+                    throw new NameError("name 'regs:6' is not defined");
+                }
+                Base base18 = baseArr[7];
+                if (base18 == null) {
+                    throw new NameError("name 'regs:7' is not defined");
+                }
+                base16.__setitem__(base17, base18);
+            } catch (StopIteration unused) {
+                baseArr[0] = baseArr[0].__call__(new Base[]{baseArr[1], baseArr[2], baseArr[3], baseArr[4]}, void_map);
+                baseArr[10] = new Func1(this);
+                baseArr[0] = baseArr[15].__call__(new Base[]{baseArr[10]}, void_map);
+                baseArr[2] = baseArr[10].__call__(void_arr, void_map);
+                baseArr[0] = baseArr[15].__call__(new Base[]{c8, baseArr[2]}, void_map);
+                return pbi.executor.Main.None;
+            }
         }
-        Base base21 = baseArr[2];
-        if (base21 == null) {
-            throw new NameError("name 'regs:2' is not defined");
-        }
-        base20.__setitem__(base21, c21);
-        baseArr[0] = baseArr[17].__call__(new Base[]{baseArr[10]}, void_map);
-        baseArr[2] = baseArr[21].__call__(new Base[]{c26, c27, c6}, void_map);
-        Base base22 = baseArr[10];
-        if (base22 == null) {
-            throw new NameError("name 'regs:10' is not defined");
-        }
-        Base base23 = baseArr[2];
-        if (base23 == null) {
-            throw new NameError("name 'regs:2' is not defined");
-        }
-        base22.__setitem__(base23, c25);
-        baseArr[0] = baseArr[17].__call__(new Base[]{baseArr[10]}, void_map);
-        return pbi.executor.Main.None;
     }
 }
 """
@@ -1120,123 +1228,85 @@ public class Main {
 
 
 """ Вывод в консоль моего движка:
-heap: 0.000669002532959
-zlib: 0.0063240528106689
-reader: 0.0153951644897461
-b_links: ((0, 17), (17, 18), (10, 19), (11, 20), (12, 21))
-consts: (123, 1, 2, 3, 127, 128, -1, -128, -129, (1, 2, 3, 4, 5, 6, 7, 8), 1234, 0, (1, 2, 3), 'Пора добавить оставшиеся типы констант:\nстрока', b'bytes', None, True, False, 5, 4, 6, (19, 18, 20), 7, 8, 9, (22, 23, 24), -2, -5)
+heap: 0.0001049041748047
+zlib: 0.0016179084777832
+reader: 0.0086760520935059
+b_links: ((2, 14), (0, 15))
+consts: (1, 'a', 2, 'b', 7, 5, 'yeah!', 123, 'returned:')
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 id: 0
-rln_count: 52
+rln_count: 32
 names: ()
 args: ((), None, None)
-• (93, 0, 17, (49,))
-• (93, 0, 17, ())
-• (93, 0, 17, (44,))
-• (71, 1, 49, 35)
-• (72, 2, 49, 35)
-• (73, 3, 49, 35)
-• (75, 4, 35, 43)
-• (83, 5, 49, 43)
-• (76, 6, 46, 49)
-• (82, 7, 49, 33)
-• (93, 0, 17, (1, 2, 3, 4, 5, 6, 7))
-• (77, 1, 46, 47)
-• (79, 2, 46, 35)
-• (78, 3, 46, 35)
-• (80, 4, 46, 33)
-• (81, 5, 46, 33)
-• (93, 0, 17, (1, 2, 3, 4, 5))
-• (95, 1, 46)
-• (96, 2, 46)
-• (97, 3, 46)
-• (92, 4, 46)
-• (92, 5, 39)
-• (93, 0, 17, (1, 2, 3, 4, 5))
-• (84, 1, 41, 43)
-• (86, 2, 41, 43)
-• (85, 3, 41, 43)
-• (88, 4, 41, 43)
-• (89, 5, 41, 43)
-• (87, 6, 41, 43)
-• (93, 0, 17, (1, 2, 3, 4, 5, 6))
-• (93, 1, 19, (46,))
-• (34, 1, 20)
-• (93, 2, 19, (46,))
-• (34, 2, 18)
-• (93, 0, 17, (1, 2))
-• (90, 1, 43, 34)
-• (90, 2, 47, 34)
-• (93, 0, 17, (1, 2))
-• (93, 0, 17, (40, 38, 31, 42, 36))
-• (2, 12)
-• (94, 16, 41)
-• (0, 0, 3)
-• (1, 0, 0, 41)
-• (1, 0, 1, 43)
-• (1, 0, 2, 33)
-• (60, 10, 0)
-• (6, 0, 10, -1)
-• (16, 0, 32)
-• (1, 10, 0, 0)
-• (93, 0, 17, (12, 16, 10))
-• (5, 3, 10)
-• (6, 14, 10, 0)
-• (6, 13, 10, 1)
-• (6, 15, 10, 2)
-• (45, 11, ((14, False), (13, False), (13, False), (15, False), (13, False), (14, False), (15, False)))
-• (93, 0, 17, (11,))
-• (93, 2, 21, (43, 48))
-• (36, 1, 11, 2)
-• (93, 0, 17, (1,))
-• (93, 2, 21, (41, 43))
-• (40, 10, 2, 51)
-• (93, 0, 17, (10,))
-• (93, 2, 21, (50, 37, 48))
-• (40, 10, 2, 45)
-• (93, 0, 17, (10,))
+• (47, 13)
+• (47, 0)
+• (40, 0, 29, 28)
+• (60, 12, 0)
+• (47, 0)
+• (40, 0, 29, 28)
+• (40, 0, 30, 31)
+• (60, 11, 0)
+• (60, 0, 15)
+• (60, 1, 13)
+• (60, 2, 12)
+• (60, 3, 11)
+• (47, 4)
+• (60, 6, 29)
+• (60, 7, 26)
+• (93, 5, 14, (6, 7))
+• (3, 5)
+• (-1,)
+• (4, 9, 5, 7)
+• (60, 6, 9)
+• (82, 7, 9, 25)
+• (60, 8, 26)
+• (19, 7, 8)
+• (40, 4, 6, 7)
+• (9, -7)
+• (-1,)
+• (37, 0, (1, 2, 3, 4))
+• (42, 10, 1)
+• (93, 0, 15, (10,))
+• (93, 2, 10, ())
+• (93, 0, 15, (27, 2))
 • (43,)
 labels: ()
-tries: ()
-local_consts: {32: 18, 33: 3, 34: 12, 35: 5, 36: 17, 37: 27, 38: 14, 39: 11, 40: 13, 41: 1, 42: 16, 43: 2, 44: 9, 45: 25, 46: 10, 47: 4, 48: 6, 49: 0, 50: 26, 51: 21, 31: 15}
+local_consts: {25: 5, 26: 4, 27: 8, 28: 1, 29: 0, 30: 2, 31: 3}
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+id: 1
+rln_count: 4
+names: ()
+args: ((), None, None)
+• (62, 0, 15)
+• (37, 0, (2,))
+• (44, 3)
+labels: ()
+local_consts: {2: 6, 3: 7}
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Сбор пулов
-   1 Lpbi/eval/Main;
+   1 Lpbi/eval/Func1;
+   2 Lpbi/eval/Main;
 
 Запаковка классов
-   1 Lpbi/eval/Main;
+   1 Lpbi/eval/Func1;
+   2 Lpbi/eval/Main;
+!!! 40 -> 41 (40, -17)
 
-file_size: 7716
-sha1: 4cc5bc14f90ec2e998c5b173cf81086c0709f7f2
-adler32: 722536282
+file_size: 4600
+sha1: b9be7a38c557c8d8acd510b2deab314e1feb15db
+adler32: 443590408
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 • module: pbi.eval.Main
-{'c18': 5, 'c19': 4, 'c12': (1, 2, 3), 'c13': 'Пора добавить оставшиеся типы констант:\nстрока', 'c10': 1234, 'c11': 0, 'c16': True, 'c17': False, 'c14': b'bytes', 'c15': None, 'void_map': <object 'java.util.HashMap' at 0x0>, 'globals': '$non-static$', 'c4': 127, 'c5': 128, 'c6': -1, 'c7': -128, 'c0': 123, 'c1': 1, 'c2': 2, 'c3': 3, 'c8': -129, 'c9': (1, 2, 3, 127, 128, -1, -128, -129), 'c21': (4, 5, 6), 'c20': 6, 'c23': 8, 'c22': 7, 'c25': (7, 8, 9), 'c24': 9, 'c27': -5, 'c26': -2, 'void_arr': <object '[Lpbi.executor.types.Base;' at 0xe6d2fa7>}
-{'module()': <methoder 'pbi.eval.Main'.module() at 0xdc07cf2>}
+{'globals': '$non-static$', 'c1': 'a', 'c0': 1, 'c3': 'b', 'c2': 2, 'c5': 5, 'c4': 7, 'c7': 123, 'void_arr': <object '[Lpbi.executor.types.Base;' at 0x6fc431e>, 'c6': 'yeah!', 'c8': 'returned:', 'last_exc': '$non-static$', 'void_map': <object 'java.util.HashMap' at 0x0>}
+{'module()': <methoder 'pbi.eval.Main'.module() at 0xe4fa415>, 'func_1([LLpbi/executor/types/Base;;)': <methoder 'pbi.eval.Main'.func_1([LLpbi/executor/types/Base;;) at 0x925732a>}
 • inst: pbi.eval.Main
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-123
-
-(1, 2, 3, 127, 128, -1, -128, -129)
-251 -5 15744 64.0 61 4 1860867
-82 1106 1234 9872 154
-1234 -1234 -1235 False True
-True False False True True False
-True False
-True False
-Пора добавить оставшиеся типы констант:
-строка b'bytes' None True False
-[] [1] [15, 2, 3]
-(15, 2, 2, 3, 2, 15, 3)
-(2, 3, 2, 15)
-num: 1 range(1, 2)
-[15, 4, 5, 6, 3]
-num: 3 range(3, 0, -1)
-num: 2 range(3, 0, -1)
-num: 1 range(3, 0, -1)
-[15, 9, 8, 7, 3]
+{} {1: 'a'} {1: 'a', 2: 'b'} {1: 1, 2: 4, 3: 5, 4: 2, 5: 3, 6: 6}
+<wrapper def#1>
+yeah!
+returned: 123
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 • returned: None
-runtime: 0.1082241535186768
+runtime: 0.1162981986999512
 """
