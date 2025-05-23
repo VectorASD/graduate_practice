@@ -93,6 +93,8 @@ for item in (-1, 0, 1, None, True, False, b"", b"123"):
 
 for a, b in ((1, 2), (3, 4)): print(a, b)
 
+
+
 def simple():
   print("yeah!")
   return 123
@@ -100,10 +102,27 @@ def simple():
 def with_args(a, b, c):
   print("args:", a, b, c)
 
+def with_defaults(a, b, c, d = 123, e = 321):
+  print("args2:", a, b, c, d, e)
+
+print()
 print(simple)
 print("returned:", simple())
+
+print()
 try: with_args(8, 5)
 except TypeError as e: print(e)
+with_args(8, 5, 3)
 try: with_args(8, 5, 3, 2)
 except TypeError as e: print(e)
-with_args(8, 5, 3)
+
+print()
+try: with_defaults(8)
+except TypeError as e: print(e)
+try: with_defaults(8, 5)
+except TypeError as e: print(e)
+with_defaults(8, 5, 3)
+with_defaults(8, 5, 3, 2)
+with_defaults(8, 5, 3, 2, 1)
+try: with_defaults(8, 5, 3, 2, 1, 1)
+except TypeError as e: print(e)

@@ -497,10 +497,10 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
 
       case 42: # %0 = def #%1     (function)
         WrapType = id2name(line[2])
-        WrapCtor = "%s-><init>(%s)V" % (WrapType, ClassName)
+        WrapCtor = "%s-><init>(%s%s)V" % (WrapType, ClassName, BaseArrType)
         extend((
           (34, 1, WrapType), # new-instance v1, {WrapType}
-          (112, WrapCtor, (1, p0)), # invoke-direct {v1, p0}, {WrapType}-><init>({ClassName})V
+          (112, WrapCtor, (1, p0, 0)), # invoke-direct {v1, p0, v0}, {WrapType}-><init>({ClassName}{BaseArrType})V
         ))
         put_var(line[1], 1) # var(line[1]) = v1
 
@@ -880,6 +880,8 @@ def method_wrapper(id2name, id, ClassName, name, state):
   WrapName = id2name(id)
   MainFieldProto = "main:" + ClassName
   MainField = "%s->%s" % (WrapName, MainFieldProto)
+  PrevRegsProto = "prev_regs:" + BaseArrType
+  PrevRegsField = "%s->%s" % (WrapName, PrevRegsProto)
 
   clinit_codes = (
     (34, 0, TypeType), # new-instance v0, Lpbi/executor/types/Type;
@@ -892,10 +894,11 @@ def method_wrapper(id2name, id, ClassName, name, state):
   clinit_method = (IS_DIRECT_METHOD, "<clinit>()V", ACCESS_CONSTRUCTOR | ACCESS_STATIC, None, (),
    (3, 0, 3, None, clinit_codes, ()), {})
 
-  registers = 3
-  inputs = 2
+  registers = 4
+  inputs = 3
   p0 = registers - inputs # this
   p1 = p0 + 1 # pbi.eval.Main
+  p2 = p0 + 2 # prev_regs
 
   init_codes = (
     (112, BaseType + "-><init>()V", (p0,)), # invoke-direct {p0}, Lpbi/lang/Object;-><init>()V
@@ -903,12 +906,13 @@ def method_wrapper(id2name, id, ClassName, name, state):
     (35, (0, 0), BaseArrType),  # new-array v0, v0, [Lpbi/executor/types/Base;
     (91, (0, p0), WrapName + LocalsField), # iput-object v0, p0, {WrapName}->locals:[Lpbi/executor/types/Base;
     (91, (p1, p0), MainField), # iput-object p1, p0, {WrapName}->main:{ClassName}
+    (91, (p2, p0), PrevRegsField), # iput-object p1, p0, {WrapName}->prev_regs:{BaseArrType}
     (14,), # return-void
   )
-  init_method = (IS_DIRECT_METHOD, "<init>(%s)V" % ClassName, ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
+  init_method = (IS_DIRECT_METHOD, "<init>(%s%s)V" % (ClassName, BaseArrType), ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
     (registers, inputs, 1, None, init_codes, ()), {})
 
-  registers = 6
+  registers = 7
   inputs = 3
   p0 = registers - inputs # this
   p1 = p0 + 1 # args
@@ -926,8 +930,14 @@ def method_wrapper(id2name, id, ClassName, name, state):
 
   L = len(args)
   if L:
+    for without_default, (reg, default) in enumerate(args):
+      if default is not None: break
+    else: without_default = L
+    # print("•••", without_default, L)
+
+  if L:
     extend((
-      (18, 1, L), # const/4 v1, {L}
+      (18, 1, without_default), # const/4 v1, {without_default}
       (53, (0, 1), 36), # if-ge v0, v1, :{+36 * 2 bytes}   4+2+4+4+6+6+4+6+2+14+6+2+4+6+2 = 72 bytes
       (177, 1, 0), # sub-int/2addr v1, v0
       (34, 0, "Ljava/lang/StringBuilder;"), # new-instance v0, Ljava/lang/StringBuilder;
@@ -966,12 +976,24 @@ def method_wrapper(id2name, id, ClassName, name, state):
   ))
 
   for i, (reg, default) in enumerate(args):
-    assert default is None
+    if default is None:
+      extend((
+        (18, 1, i), # const/4 v1, {i}
+        (70, 1, p1, 1), # aget-object v1 = p1[v1]
+      ))
+    else:
+      extend((
+        (18, 1, i), # const/4 v1, {i}
+        (55, (0, 1), 5), # if-le v0, v1, :{+5 * 2 bytes}   4+4+2 = 10 bytes
+          (70, 1, p1, 1), # aget-object v1 = p1[v1]
+        (40, 6), # goto :{+6 * 2 bytes}   2+2+4+4 = 12 bytes
+          (18, 1, default), # const/4 v1, {default}
+          (84, (3, p0), PrevRegsField), # iget-object v3, p0, {WrapName}->prev_regs:{BaseArrType}
+          (70, 1, 3, 1), # aget-object v1 = v3[v1]
+      ))
     extend((
-      (18, 0, i), # const/4 v0, {i}
-      (70, 0, p1, 0), # aget-object v0 = p1[v0]
-      (18, 1, reg), # const/4 v1, {reg}
-      (77, 0, 2, 1), # aput-object v2[v1] = v0
+      (18, 3, reg), # const/4 v3, {reg}
+      (77, 1, 2, 3), # aput-object v2[v3] = v1
     ))
 
   extend((
@@ -990,6 +1012,7 @@ def method_wrapper(id2name, id, ClassName, name, state):
    (
     (IS_STATIC_FIELD, TypeField[2:], ACCESS_STATIC, None, (), None, {}),
     (IS_INSTANCE_FIELD, MainFieldProto, ACCESS_NOFLAGS, None, (), None, {}),
+    (IS_INSTANCE_FIELD, PrevRegsProto, ACCESS_NOFLAGS, None, (), None, {}),
     (IS_INSTANCE_FIELD, LocalsField[2:], ACCESS_NOFLAGS, None, (), None, {}),
      clinit_method,
      init_method,
