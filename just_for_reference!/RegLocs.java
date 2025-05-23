@@ -89,7 +89,7 @@ public class RegLocs {
 
     if (recv_args < without_default) {
       int missing = without_default - recv_args;
-      throw new TypeError("#" + id + "() missing " + missing + " required positional argument" + (missing > 1 ? "s" : ""));
+      throw new TypeError("#" + id + "() missing " + missing + " required positional argument" + (missing != 1 ? "s" : ""));
     }
 
     int args_count = loc_args_0.length;

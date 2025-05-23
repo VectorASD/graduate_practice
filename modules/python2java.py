@@ -50,6 +50,7 @@ BytesType = "Lpbi/executor/types/Bytes;"
 ListType = "Lpbi/executor/types/List;"
 TupleType = "Lpbi/executor/types/Tuple;"
 DictType = "Lpbi/executor/types/Dict;"
+SetType = "Lpbi/executor/types/pSet;"
 JavaWrapType = "Lpbi/executor/types/JavaWrap;"
 TypeType = "Lpbi/executor/types/Type;"
 
@@ -60,6 +61,7 @@ ValueErrorType = "Lpbi/executor/exceptions/ValueError;"
 StopIterationType = "Lpbi/executor/exceptions/StopIteration;"
 PyExceptionType = "Lpbi/executor/exceptions/PyException;"
 RuntimeErrorType = "Lpbi/executor/exceptions/RuntimeError;"
+TypeErrorType = "Lpbi/executor/exceptions/TypeError;"
 
 # Поля
 
@@ -87,7 +89,9 @@ ListCtor = ListType + "-><init>()V"
 ListCtor2 = ListType + "-><init>(Ljava/util/ArrayList;)V"
 ListCtor3 = ListType + "-><init>(I)V"
 TupleCtor = "%s-><init>(%s)V" % (TupleType, BaseArrType)
+TupleCtor2 = "%s-><init>(%s)V" % (TupleType, BaseType)
 DictCtor = DictType + "-><init>()V"
+SetCtor = SetType + "-><init>()V"
 JavaWrapCtor = JavaWrapType + "-><init>(Ljava/lang/String;)V"
 TypeCtor = TypeType + "-><init>(Ljava/lang/Class;Ljava/lang/String;)V"
 
@@ -95,6 +99,7 @@ TypeCtor = TypeType + "-><init>(Ljava/lang/Class;Ljava/lang/String;)V"
 
 NameErrorCtor = NameErrorType + "-><init>(Ljava/lang/String;)V"
 ValueErrorCtor = ValueErrorType + "-><init>(Ljava/lang/String;)V"
+TypeErrorCtor = TypeErrorType + "-><init>(Ljava/lang/String;)V"
 
 
 
@@ -122,6 +127,7 @@ BoolMethod = BaseType + "->__bool()Z"
 IterMethod = "%s->__iter__()%s" % (BaseType, BaseType)
 NextMethod = "%s->__next__()%s" % (BaseType, BaseType)
 AppendMethod = "%s->append(%s)V" % (BaseType, BaseType)
+AddMethod = "%s->add(%s)V" % (BaseType, BaseType)
 EnterMethod = "%s->__enter__()%s" % (BaseType, BaseType)
 ExitMethod = "%s->__exit__(%s%s)%s" % ((BaseType,) * 4)
 RaiseMethod = "%s->__raise__()%s" % (BaseType, BaseType)
@@ -247,6 +253,28 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
     # 4 + 10 * strings + 6 * integers + 6 + 2 + 6 * (если type(items[0]) is int)
     # = 12 + 10 * strings + 6 * (integers + (если type(items[0]) is int)) 
 
+  def test_tuple_and_size(size):
+    extend((
+      (110, LenMethod, (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__len()I
+      (10, 1), # move-result v1
+      (18, 2, size), # const v2 = {size}
+
+      (55, (1, 2), 10), # if-le v1, v2, :{+10 * 2 bytes}   4+4+4+6+2 = 20 bytes
+      (34, 1, ValueErrorType), # new-instance v1, Lpbi/executor/exceptions/ValueError;
+      (26, 2, "too many values to unpack (expected %s)" % size), # const-string v2, {const}
+      (112, ValueErrorCtor, (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/exceptions/ValueError;-><init>(Ljava/lang/String;)V
+      (39, 1), # throw v1
+
+      (53, (1, 2), 27), # if-ge v1, v2, :{+27 * 2 bytes}   4+38+4+6+2 = 54 bytes
+    ))
+    # (26, 2, "not enough values to unpack (expected %s)" % size), # const-string v2, {const}
+    string_builder(("not enough values to unpack (expected %s, got" % size, 1, ")"), 2) # v2 = "..." + v1 + ")"     12+10*2+6*1 = 38 bytes
+    extend((
+      (34, 1, ValueErrorType), # new-instance v1, Lpbi/executor/exceptions/ValueError;
+      (112, ValueErrorCtor, (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/exceptions/ValueError;-><init>(Ljava/lang/String;)V
+      (39, 1), # throw v1
+    ))
+
 
 
   registers = 5
@@ -311,8 +339,7 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
 
   for pos, line in enumerate(py_codes):
     # Коды оставшихся операций:
-    # 12, 13, 41, 46, 50,
-    # 56, 57, 58, 64, 65, 66, 68, 70, 98, 99
+    # 12, 41, 46, 64, 68, 98, 99
     match line[0]:
       case -1: # label
         append((-1, -pos))
@@ -352,35 +379,19 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
       case 5: # test tuple & size %0: v%1
         get_reg(1, line[2]) # const v1 = regs[line[2]]
         size = line[1]
-        extend((
-          (110, LenMethod, (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__len()I
-          (10, 1), # move-result v1
-          (18, 2, size), # const v2 = {size}
+        test_tuple_and_size(size)
 
-          (55, (1, 2), 10), # if-le v1, v2, :{+10 * 2 bytes}   4+4+4+6+2 = 20 bytes
-          (34, 1, ValueErrorType), # new-instance v1, Lpbi/executor/exceptions/ValueError;
-          (26, 2, "too many values to unpack (expected %s)" % size), # const-string v2, {const}
-          (112, ValueErrorCtor, (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/exceptions/ValueError;-><init>(Ljava/lang/String;)V
-          (39, 1), # throw v1
-
-          (53, (1, 2), 27), # if-ge v1, v2, :{+27 * 2 bytes}   4+38+4+6+2 = 54 bytes
-        ))
-        # (26, 2, "not enough values to unpack (expected %s)" % size), # const-string v2, {const}
-        string_builder(("not enough values to unpack (expected %s, got" % size, 1, ")"), 2) # v2 = "..." + v1 + ")"     12+10*2+6*1 = 38 bytes
-        extend((
-          (34, 1, ValueErrorType), # new-instance v1, Lpbi/executor/exceptions/ValueError;
-          (112, ValueErrorCtor, (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/exceptions/ValueError;-><init>(Ljava/lang/String;)V
-          (39, 1), # throw v1
-        ))
-
-      case 6: # v%0 = v%1[%2]
+      case 6 | 66:
+        # 6: v%0 = v%1[%2]
+        # 66: %0 = v%1[%2]
         get_reg(1, line[2]) # const v1 = regs[line[2]]
         extend((
           (18, 2, line[3]), # const v2 = {line[3]}
           (110, GetItemMethod, (1, 2)), # invoke-virtual {v1, v2}, Lpbi/executor/types/Base;->__getitem__(I)Lpbi/executor/types/Base;
           (12, 1), # move-result-object v1
         ))
-        put_reg(line[1], 1) # regs[line[1]] = v1
+        if line[0] == 66: put_var(line[1], 1) # var(line[1]) = v1
+        else: put_reg(line[1], 1) # regs[line[1]] = v1
 
       case 7: # ifn v%0: goto %1
         get_reg(1, line[1]) # const v1 = regs[line[1]]
@@ -403,7 +414,15 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
 
       case 10..11: 1/0
 
-      # 12..13
+      # 12
+
+      case 13: # v%0 = tuple(v%0) (tuplemaker)
+        get_reg(2, line[1], 3) # const v3 = {line[1]}, v2 = regs[v3]
+        extend((
+          (34, 1, TupleType), # new-instance v1, Lpbi/executor/types/Tuple;
+          (112, TupleCtor2, (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/types/Tuple;-><init>(Lpbi/executor/types/Base;)V
+          (77, 1, 0, 3), # aput-object v0[v3] = v1
+        ))
 
       case 14..32: # v%0 {maths}= v%1
         code, in1, in2 = line
@@ -528,7 +547,12 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
         get_reg(1, line[1]) # const v1 = regs[line[1]]
         append((110, RaiseMethod, (1,))) # invoke-virtual {v1}, Lpbi/executor/types/Base;->__raise__()Lpbi/executor/types/Base;
 
-      # 50
+      case 50: # v%0 = set()
+        extend((
+          (34, 1, SetType), # new-instance v1, Lpbi/executor/types/pSet;
+          (112, SetCtor, (1,)), # invoke-direct {v1}, Lpbi/executor/types/pSet;-><init>()V
+        ))
+        put_reg(line[1], 1) # regs[line[1]] = v1
 
       case 51..53: # v%0 = {unars}v%0
         code, inout = line
@@ -574,7 +598,10 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
           (-1, no_throw),
         ))
 
-      # 56
+      case 56: # v%0.add(v%1)
+        get_reg(1, line[1]) # const v1 = regs[line[1]]
+        get_reg(2, line[2]) # const v2 = regs[line[2]]
+        append((110, AddMethod, (1, 2))) # invoke-virtual {v1, v2}, Lpbi/executor/types/Base;->add(Lpbi/executor/types/Base;)V
 
       case 57: # last_exception = None
         extend((
@@ -582,7 +609,14 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
           (91, (1, p0), ClassName + LastExcField), # iput-object v1, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
         ))
 
-      # 58
+      case 58: # if v%0: goto %1
+        get_reg(1, line[1]) # const v1 = regs[line[1]]
+        off = -(pos + line[2])
+        extend((
+          (110, BoolMethod, (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__bool()Z
+          (10, 1), # move-result v1
+          (57, 1, (off,)), # if-nez v1, :{off}
+        ))
 
       case 59: # %0 <- "package%1"
         extend((
@@ -609,24 +643,33 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
 
       case 63: 1/0
 
-      # 64..66
+      # 64
 
-      case 4 | 67:
+      # 65 реализовано внутри 67
+
+      # 66 реализовано внутри 6
+
+      case 4 | 65 | 67:
         # 4: try: v%0 = v%1.__next__()\nexcept StopIteration: goto %2
+        # 65: try: v%0 (test tuple & size %1) = v%2.__next__()\nexcept StopIteration: goto %3
         # 67: try: %0 = v%1.__next__()\nexcept StopIteration: goto %2
-        get_reg(1, line[2]) # const v1 = regs[line[2]]
+        code = line[0]
+        get_reg(1, line[3 if code == 65 else 2]) # const v1 = regs[line[2]]
         L = len(codes)
         try_start = L # метки могут быть, вполне, и просто числами
         try_end = L + 1
-        catch = -(pos + line[3])
+        catch = -(pos + line[4 if code == 65 else 3])
         extend((
           (-1, try_start),
           (110, NextMethod, (1,)), # invoke-virtual {v1}, Lpbi/executor/types/Base;->__next__()Lpbi/executor/types/Base;
           (-1, try_end),
           (12, 1), # move-result-object v1
         ))
-        if line[0] == 4: put_reg(line[1], 1) # regs[line[1]] = v1
-        else: put_var(line[1], 1) # var(line[1]) = v1
+
+        if code == 67: put_var(line[1], 1) # var(line[1]) = v1
+        else: put_reg(line[1], 1) # regs[line[1]] = v1
+
+        if code == 65: test_tuple_and_size(line[2])
 
         # Гениально!!! goto в случае StopIteration использовать напрямую в качестве catch-блока! 
         # Интересно, что будет с JaDX после этого?! По опыту говорю, что try-catch-finally-конструкции для него - боль
@@ -643,7 +686,13 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
         ))
         put_reg(line[1], 1) # regs[line[1]] = 1
 
-      # 70
+      case 70: # v%0 = tuple(v%1) (tuplemaker)   (13)
+        get_reg(2, line[2]) # const v2 = regs[line[2]]
+        extend((
+          (34, 1, TupleType), # new-instance v1, Lpbi/executor/types/Tuple;
+          (112, TupleCtor2, (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/types/Tuple;-><init>(Lpbi/executor/types/Base;)V
+        ))
+        put_reg(line[1], 1) # regs[line[1]] = 1
 
       case 71..89: # v%0 = v%1 {maths} v%2   (14..32)
         code, out, in1, in2 = line
@@ -826,7 +875,7 @@ def apply_consts(ClassName, extend, append, consts, end):
 
 
 def method_wrapper(id2name, id, ClassName, name, state):
-  (rln_count, names), args, codes, labels, tries, local_consts = state
+  (rln_count, names), (args, star, dstar), codes, labels, tries, local_consts = state
 
   WrapName = id2name(id)
   MainFieldProto = "main:" + ClassName
@@ -865,16 +914,72 @@ def method_wrapper(id2name, id, ClassName, name, state):
   p1 = p0 + 1 # args
   p2 = p0 + 2 # kw_args
 
-  caller_codes = (
+  caller_codes = [
     (18, 0, 0), # const/4 v0, 0x0
     (18, 1, rln_count), # const v1 = {rln_count}
     (84, (2, p0), WrapName + LocalsField), # iget-object v2, p0, {WrapName}->locals:[Lpbi/executor/types/Base;
     (113, 'Ljava/util/Arrays;->fill([Ljava/lang/Object;IILjava/lang/Object;)V', (2, 0, 1, 0)), # invoke-static {v2, v0, v1, v0}, Ljava/util/Arrays;->fill([Ljava/lang/Object;IILjava/lang/Object;)V
+    (33, 0, p1), # array-length v0, p1
+  ]
+  extend = caller_codes.extend
+  append = caller_codes.append
+
+  L = len(args)
+  if L:
+    extend((
+      (18, 1, L), # const/4 v1, {L}
+      (53, (0, 1), 36), # if-ge v0, v1, :{+36 * 2 bytes}   4+2+4+4+6+6+4+6+2+14+6+2+4+6+2 = 72 bytes
+      (177, 1, 0), # sub-int/2addr v1, v0
+      (34, 0, "Ljava/lang/StringBuilder;"), # new-instance v0, Ljava/lang/StringBuilder;
+      (26, 2, "#%s() missing " % id), # const-string v2, {...}
+      (112, 'Ljava/lang/StringBuilder;-><init>(Ljava/lang/String;)V', (0, 2)), # invoke-direct {v0, v2}, Ljava/lang/StringBuilder;-><init>(Ljava/lang/String;)V
+      (110, 'Ljava/lang/StringBuilder;->append(I)Ljava/lang/StringBuilder;', (0, 1)), # invoke-virtual {v0, v1}, Ljava/lang/StringBuilder;->append(I)Ljava/lang/StringBuilder;
+      (26, 2, " required positional argument"), # const-string v2, " required positional argument"
+      (110, 'Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;', (0, 2)), # invoke-virtual {v0, v2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+      (18, 2, 1), # const/4 v2, 1
+
+      (50, (1, 2), 7), # if-eq v1, v2, :{+7 * 2 bytes}   4+4+6 = 14 bytes
+      (26, 2, 's'), # const-string v2, "s"
+      (110, 'Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;', (0, 2)), # invoke-virtual {v0, v2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+      (110, 'Ljava/lang/StringBuilder;->toString()Ljava/lang/String;', (0,)), # invoke-virtual {v0}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+      (12, 0), # move-result-object v0
+      (34, 1, TypeErrorType), # new-instance v1, Lpbi/executor/exceptions/TypeError;
+      (112, TypeErrorCtor, (1, 0)), # invoke-direct {v1, v0}, Lpbi/executor/exceptions/TypeError;-><init>(Ljava/lang/String;)V
+      (39, 1), # throw v1
+    ))
+
+  extend((
+    (18, 1, L), # const/4 v1, {L}
+    (55, (0, 1), 27), # if-le v0, v1, :{+27 * 2 bytes}   4+4+4+6+6+4+6+6+2+4+6+2 = 54 bytes
+    (34, 1, "Ljava/lang/StringBuilder;"), # new-instance v1, Ljava/lang/StringBuilder;
+    (26, 2, "#%s() takes %s positional arguments but " % (id, L)), # const-string v2, {...}
+    (112, 'Ljava/lang/StringBuilder;-><init>(Ljava/lang/String;)V', (1, 2)), # invoke-direct {v1, v2}, Ljava/lang/StringBuilder;-><init>(Ljava/lang/String;)V
+    (110, 'Ljava/lang/StringBuilder;->append(I)Ljava/lang/StringBuilder;', (1, 0)), # invoke-virtual {v1, v0}, Ljava/lang/StringBuilder;->append(I)Ljava/lang/StringBuilder;
+    (26, 2, " were given"), # const-string v2, " were given"
+    (110, 'Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;', (1, 2)), # invoke-virtual {v1, v2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    (110, 'Ljava/lang/StringBuilder;->toString()Ljava/lang/String;', (1,)), # invoke-virtual {v1}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+    (12, 0), # move-result-object v0
+    (34, 1, TypeErrorType), # new-instance v1, Lpbi/executor/exceptions/TypeError;
+    (112, TypeErrorCtor, (1, 0)), # invoke-direct {v1, v0}, Lpbi/executor/exceptions/TypeError;-><init>(Ljava/lang/String;)V
+    (39, 1), # throw v1
+  ))
+
+  for i, (reg, default) in enumerate(args):
+    assert default is None
+    extend((
+      (18, 0, i), # const/4 v0, {i}
+      (70, 0, p1, 0), # aget-object v0 = p1[v0]
+      (18, 1, reg), # const/4 v1, {reg}
+      (77, 0, 2, 1), # aput-object v2[v1] = v0
+    ))
+
+  extend((
     (84, (0, p0), MainField), # iget-object v0, p0, {WrapName}->main:{ClassName}
     (110, name, (0, 2)), # invoke-virtual {v0, v2}, Lpbi/eval/Main;->func_1([Lpbi/executor/types/Base;)Lpbi/executor/types/Base;
     (12, 0), # move-result-object v0
     (17, 0), # return-object v0
-  )
+  ))
   caller_method = (IS_VIRTUAL_METHOD, CallerProto, ACCESS_PUBLIC, None, (),
     (registers, inputs, 4, None, caller_codes, ()), {})
 

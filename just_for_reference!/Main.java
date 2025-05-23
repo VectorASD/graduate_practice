@@ -1131,7 +1131,7 @@ public class Main {
           reg = i0data[pos];
           obj = regs[reg];
           reg = i1data[pos];
-          ((pSet) obj).add(regs[reg]);
+          obj.add(regs[reg]);
           break;
         case 57: // last_exception = None
           last_exc = None;

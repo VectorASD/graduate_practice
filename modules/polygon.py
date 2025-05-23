@@ -73,14 +73,37 @@ for i in range(3):
   except KeyError: print("inner")
 """
 
-_dict1 = {}
-_dict2 = {1: "a"}
-_dict3 = {1: "a", 2: "b"}
-print(_dict1, _dict2, _dict3, {k : k ** 5 % 7 for k in range(1, 7)})
+dict1 = {}
+dict2 = {1: "a"}
+dict3 = {1: "a", 2: "b"}
+print(dict1, dict2, dict3, {k : k ** 5 % 7 for k in range(1, 7)})
+
+tuple1 = ()
+tuple2 = (5,)
+tuple3 = (1, 2, 4)
+print(tuple1, tuple2, tuple3, tuple(i ** 5 % 7 for i in range(1, 7)))
+
+set1 = set()
+set2 = {5}
+set3 = {1, 2, 4}
+print(set1, set2, set3) # мой компилятор пока не поддерживает set_maker поверх dict_maker'а... {i ** 5 % 7 for i in range(1, 7)})
+
+for item in (-1, 0, 1, None, True, False, b"", b"123"):
+  print("    %r:" % item, item and "yes" or "no")
+
+for a, b in ((1, 2), (3, 4)): print(a, b)
 
 def simple():
   print("yeah!")
   return 123
 
+def with_args(a, b, c):
+  print("args:", a, b, c)
+
 print(simple)
 print("returned:", simple())
+try: with_args(8, 5)
+except TypeError as e: print(e)
+try: with_args(8, 5, 3, 2)
+except TypeError as e: print(e)
+with_args(8, 5, 3)
