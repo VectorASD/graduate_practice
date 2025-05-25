@@ -62,6 +62,7 @@ StopIterationType = "Lpbi/executor/exceptions/StopIteration;"
 PyExceptionType = "Lpbi/executor/exceptions/PyException;"
 RuntimeErrorType = "Lpbi/executor/exceptions/RuntimeError;"
 TypeErrorType = "Lpbi/executor/exceptions/TypeError;"
+AttributeErrorType = "Lpbi/executor/exceptions/AttributeError;"
 
 # Поля
 
@@ -69,6 +70,7 @@ GlobalsField = "->globals:" + BaseArrType
 LocalsField = "->locals:" + BaseArrType
 TypeField = "->type:" + TypeType
 LastExcField = "->last_exc:" + BaseType
+ClassHookField = "->class_hook:" + BaseType
 
 VoidArrField = "->void_arr:" + BaseArrType
 VoidMapField = "->void_map:Ljava/util/Map;"
@@ -82,6 +84,7 @@ ErrorField = "%s->err:%s" % (RuntimeErrorType, PyExceptionType)
 # КонструкТОРы типов
 
 BigIntCtor = BigIntType + "-><init>([B)V"
+BigIntCtor2 = BigIntType + "-><init>(I)V"
 FloatCtor = FloatType + "-><init>(D)V"
 StringCtor = StringType + "-><init>(Ljava/lang/String;)V"
 BytesCtor = BytesType + "-><init>([B)V"
@@ -100,6 +103,7 @@ TypeCtor = TypeType + "-><init>(Ljava/lang/Class;Ljava/lang/String;)V"
 NameErrorCtor = NameErrorType + "-><init>(Ljava/lang/String;)V"
 ValueErrorCtor = ValueErrorType + "-><init>(Ljava/lang/String;)V"
 TypeErrorCtor = TypeErrorType + "-><init>(Ljava/lang/String;)V"
+AttributeErrorCtor = AttributeErrorType + "-><init>(Ljava/lang/String;Ljava/lang/String;)V"
 
 
 
@@ -122,6 +126,7 @@ SetItemMethod2 = "%s->__setitem__(%s%s)V" % (BaseType, BaseType, BaseType)
 GetItemMethod = "%s->__getitem__(I)%s" % (BaseType, BaseType)
 GetItemMethod2 = "%s->__getitem__(%s)%s" % (BaseType, BaseType, BaseType)
 GetAttrMethod = "%s->__getattr__(Ljava/lang/String;)%s" % (BaseType, BaseType)
+SetAttrMethod = "%s->__setattr__(%s%s)V" % (BaseType, BaseType, BaseType)
 LenMethod = BaseType + "->__len()I"
 BoolMethod = BaseType + "->__bool()Z"
 IterMethod = "%s->__iter__()%s" % (BaseType, BaseType)
@@ -131,6 +136,9 @@ AddMethod = "%s->add(%s)V" % (BaseType, BaseType)
 EnterMethod = "%s->__enter__()%s" % (BaseType, BaseType)
 ExitMethod = "%s->__exit__(%s%s)%s" % ((BaseType,) * 4)
 RaiseMethod = "%s->__raise__()%s" % (BaseType, BaseType)
+
+DirMethod = "Lpbi/executor/types/PyClass;->dir(Ljava/util/ArrayList;Ljava/util/Map;Ljava/util/concurrent/locks/Lock;)V"
+StrMethod = "%s->__str()%s" % (BaseType, StringType)
 
 """ TODOs:
 Разделить вызов функций на их вызов и присвоение в регистр результата вызова (например, у всех print бессмысленное присвоение их None-результата в regs[0])
@@ -160,7 +168,7 @@ bultin_expections = bultin_expections()
 
 
 
-def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analysis):
+def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_consts, analysis):
   def reg_is_null(reg, py_reg):
     # проверяется reg-регистр на null
     # 4 + 4 + 4 + 6 + 6 + 4 + 6 + 6 + 2 + 4 + 6 + 2 = 54 bytes
@@ -208,6 +216,20 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
       (77, reg, 0, tmp), # aput-object v0[v{tmp}] = v{reg}
     ))
 
+  def get_var(reg, var, tmp):
+    if type(var) is int:
+      get_reg(reg, var)
+      return
+    char = var[0]
+    if char == "g":
+      extend((
+        (84, (reg, p0), ClassName + GlobalsField), # iget-object v{reg}, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
+        (18, tmp, int(var[1:])), # const v{tmp} = {...}
+        (70, reg, reg, tmp), # aget-object v{reg} = v{reg}[v{tmp}]
+      ))
+      return
+    print("get_var:", reg, var); 1/0
+
   def put_var(idx, reg):
     if type(idx) is int:
       put_reg(idx, reg)
@@ -217,14 +239,18 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
     #  case 2: 
     #  case _: print(idx >> 3, idx & 7); 1/0
 
-  def make_base_array(args):
+  def make_base_array(args, is_regs = True, arr_extend = 0):
+    if not args:
+      append((98, 1, ClassName + VoidArrField)) # sget-object v1, {ClassName}->void_arr:[Lpbi/executor/types/Base;
+      return
     extend((
-      (18, 1, len(args)), # const v1 = {len(args)}
+      (18, 1, len(args) + arr_extend), # const v1 = {len(args) + arr_extend}
       (35, (1, 1), BaseArrType),  # new-array v1, v1, [Lpbi/executor/types/Base;
     ))
     for i, arg in enumerate(args):
+      if is_regs: get_reg(3, arg, None, True) # const v3 = regs[arg]
+      else: get_var(3, arg, 2) # v3 = var(arg)
       append((18, 2, i)) # const v2 = {i}
-      get_reg(3, arg, None, True) # const v3 = regs[arg]
       append((77, 3, 1, 2)) # aput-object v1[v2] = v3
 
   def string_builder(items, reg):
@@ -277,7 +303,7 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
 
 
 
-  registers = 5
+  registers = 4 + inputs
   outsSize = 3 # пока не разобрался, как ЭТО правильно считать...
 
   p0 = registers - inputs # экземпляр pbi.eval.Main
@@ -339,7 +365,7 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
 
   for pos, line in enumerate(py_codes):
     # Коды оставшихся операций:
-    # 12, 41, 46, 64, 68, 98, 99
+    # 12, 64, 68, 98, 99
     match line[0]:
       case -1: # label
         append((-1, -pos))
@@ -493,7 +519,15 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
         get_reg(3, line[3]) # const v3 = regs[line[3]]
         append((110, SetItemMethod2, (1, 2, 3))) # invoke-virtual {v1, v2, v3}, Lpbi/executor/types/Base;->__setitem__(Lpbi/executor/types/Base;Lpbi/executor/types/Base;)V
 
-      # 41
+      case 41: # v%0.%1 = v%2
+        get_reg(1, line[1]) # const v1 = regs[line[1]]
+        extend((
+          (34, 2, StringType), # new-instance v2, Lpbi/executor/types/pString;
+          (26, 3, line[2]), # const-string v3, {const}
+          (112, StringCtor, (2, 3)), # invoke-direct {v2, v3}, Lpbi/executor/types/pString;-><init>(Ljava/lang/String;)V
+        ))
+        get_reg(3, line[3]) # const v3 = regs[line[3]]
+        append((110, SetAttrMethod, (1, 2, 3))) # invoke-virtual {v1, v2, v3}, Lpbi/executor/types/Base;->__setattr__(Lpbi/executor/types/Base;Lpbi/executor/types/Base;)V
 
       case 42: # %0 = def #%1     (function)
         WrapType = id2name(line[2])
@@ -525,7 +559,31 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
         ))
         put_reg(line[1], 2) # regs[line[1]] = v2
 
-      # 46
+      case 46: # return type(id, (v%0_args), locals())
+        regs = tuple(i for i, name in enumerate(names) if name is not None)
+        args = line[1] + regs
+        make_base_array(args, False, 2) # v1 = new Base[] {...arg_vars}
+        L = len(args)
+        
+        extend((
+          (34, 3, BigIntType), # new-instance v0, Lpbi/executor/types/BigInt;
+          (18, 2, len(regs)), # const v2 = {len(regs)}
+          (112, BigIntCtor2, (3, 2)), # invoke-direct {v3, v2}, Lpbi/executor/types/BigInt;-><init>(I)V
+          (18, 2, L), # const v2 = {L}
+          (77, 3, 1, 2), # aput-object v1[v2] = v3
+
+          (34, 3, BigIntType), # new-instance v0, Lpbi/executor/types/BigInt;
+          (18, 2, id), # const v2 = {id}
+          (112, BigIntCtor2, (3, 2)), # invoke-direct {v3, v2}, Lpbi/executor/types/BigInt;-><init>(I)V
+          (18, 2, L+1), # const v2 = {L+1}
+          (77, 3, 1, 2), # aput-object v1[v2] = v3
+
+          (84, (2, p0), ClassName + ClassHookField), # iget-object v2, p0, {ClassName}->class_hook:Lpbi/executor/Wrapper;
+          (98, 3, ClassName + VoidMapField), # sget-object v3, {ClassName}->void_map:Ljava/util/Map;
+          (110, CallerMethod, (2, 1, 3)), # invoke-virtual {v2, v1, v3}, Lpbi/executor/types/Base;->__call__([Lpbi/executor/types/Base;Ljava/util/Map;)Lpbi/executor/types/Base;
+          (12, 0), # move-result-object v0
+          (17, 0), # return-object v0
+        ))
 
       case 47: # v%0 = dict()
         extend((
@@ -753,8 +811,7 @@ def builder(ClassName, inputs, id2name, py_codes, py_tries, local_consts, analys
           out = line[1]
           _in = line[2]
           args = line[3]
-        if args: make_base_array(args) # v1 = new Base[] {...arg_regs}
-        else: append((98, 1, ClassName + VoidArrField)) # sget-object v1, {ClassName}->void_arr:[Lpbi/executor/types/Base;
+        make_base_array(args) # v1 = new Base[] {...arg_regs}
         extend((
           (18, 2, _in), # const v2 = {_in}
           (70, 2, 0, 2), # aget-object v2 = v0[v2]
@@ -1037,6 +1094,133 @@ def method_wrapper(id2name, id, ClassName, name, state):
 
 
 
+def class_hook(args, id2names):
+  L = -(args[-2] + 2)
+  id = args[-1]
+
+  types = args[:L]
+  match len(types):
+    case 0: Type = object
+    case 1: Type = types[0]
+    case 2: raise Exception("Множественное наследование пока невозможно")
+  attrs = args[L:-2]
+  names = tuple(name for name in id2names[id] if name is not None)
+
+  SuperName = DVM_name(str(__import__(Type)))
+  jClassName = "pbi.eval.Class_%s" % id
+  ClassName = DVM_name(jClassName)
+
+  Ctor = SuperName + "-><init>()V";
+  DictProto = "__dict__:Ljava/util/Map;"
+  DictField = "%s->%s" % (ClassName, DictProto)
+  LockProto = "lock:Ljava/util/concurrent/locks/Lock;"
+  LockField = "%s->%s" % (ClassName, LockProto)
+
+  p0 = 3
+  p1 = p0 + 1
+  codes = [
+    (34, 0, 'Ljava/util/concurrent/locks/ReentrantLock;'), # new-instance v0, Ljava/util/concurrent/locks/ReentrantLock;
+    (112, 'Ljava/util/concurrent/locks/ReentrantLock;-><init>()V', (0,)), # invoke-direct {v0}, Ljava/util/concurrent/locks/ReentrantLock;-><init>()V
+    (91, (0, p0), LockField), # iput-object v0, p0, {ClassName}->lock:Ljava/util/concurrent/locks/Lock;
+    (112, Ctor, (p0,)), # invoke-direct {p0}, Lpbi/executor/types/Base;-><init>()V
+    (34, 0, 'Ljava/util/HashMap;'), # new-instance v0, Ljava/util/HashMap;
+    (112, 'Ljava/util/HashMap;-><init>()V', (0,)), # invoke-direct {v0}, Ljava/util/HashMap;-><init>()V
+  ]
+  extend = codes.extend
+  for i, name in enumerate(names):
+    extend((
+      (26, 1, name), # const-string v1, {...}
+      (18, 2, i), # const/4 v2, {reg}
+      (70, 2, p1, 2), # aget-object v2 = p1[v2]
+      (114, 'Ljava/util/Map;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;', (0, 1, 2)), # invoke-interface {v0, v1, v2}, Ljava/util/Map;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+    ))
+  extend((
+    (91, (0, p0), DictField), # iput-object v0, p0, {ClassName}->__dict__:Ljava/util/Map;
+    (14,), # return-void
+  ))
+  init_method = (IS_DIRECT_METHOD, '<init>(%s)V' % BaseArrType, ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (('Ldalvik/annotation/Throws;', ((28, 'value', ((24, 'Lpbi/executor/exceptions/RuntimeError;'),)),), 'system'),),
+   (p0 + 2, 2, 3, None, codes, ()), {})
+
+  getattr_methods = tuple(
+    (IS_VIRTUAL_METHOD, '__getattr__(%s)%s' % (BaseType if i else "Ljava/lang/String;", BaseType), ACCESS_PUBLIC, None, (('Ldalvik/annotation/Throws;', ((28, 'value', ((24, 'Lpbi/executor/exceptions/RuntimeError;'),)),), 'system'),),
+     (5, 2, 3, None, (
+       (110, StrMethod, (4,)) if i else (-1, 0), # invoke-virtual {p1}, Lpbi/executor/types/Base;->__str()Lpbi/executor/types/pString;
+       (12, 0) if i else (-1, 0), # move-result-object v0
+       (84, (0, 0), 'Lpbi/executor/types/pString;->str:Ljava/lang/String;') if i else (-1, 0), # iget-object v0, v0, Lpbi/executor/types/pString;->str:Ljava/lang/String;
+       (84, (1, 3), LockField), # iget-object v1, p0, {ClassName}->lock:Ljava/util/concurrent/locks/Lock;
+       (-1, 0),
+       (114, 'Ljava/util/concurrent/locks/Lock;->lock()V', (1,)), # invoke-interface {v1}, Ljava/util/concurrent/locks/Lock;->lock()V
+       (84, (2, 3), DictField), # iget-object v2, p0, {ClassName}->__dict__:Ljava/util/Map;
+       (114, 'Ljava/util/Map;->get(Ljava/lang/Object;)Ljava/lang/Object;', (2, 0 if i else 4)), # invoke-interface {v2, v0}, Ljava/util/Map;->get(Ljava/lang/Object;)Ljava/lang/Object;
+       (-1, 1),
+       (12, 2), # move-result-object v2
+       (114, 'Ljava/util/concurrent/locks/Lock;->unlock()V', (1,)), # invoke-interface {v1}, Ljava/util/concurrent/locks/Lock;->unlock()V
+  
+       (57, 2, 10), # if-nez 2, :{+10 * 2 bytes}   4+4+4+6+2 = 20 bytes
+       (34, 1, AttributeErrorType), # new-instance v1 Lpbi/executor/exceptions/AttributeError;
+       (26, 2, "'%s'" % ClassName), # const-string v2, {...}
+       (112, AttributeErrorCtor, (1, 2, 0 if i else 4)), # invoke-direct {v1, v2, v0}, Lpbi/executor/exceptions/AttributeError;-><init>(Ljava/lang/String;Ljava/lang/String;)V
+       (39, 1), # throw v1
+  
+       (31, 2, BaseType), # check-cast v2, Lpbi/executor/types/Base;
+       (17, 2), # return-object v2
+       (-1, 2),
+       (13, 0), # move-exception v0
+       (114, 'Ljava/util/concurrent/locks/Lock;->unlock()V', (1,)), # invoke-interface {v1}, Ljava/util/concurrent/locks/Lock;->unlock()V
+       (39, 0), # throw v0
+      ), ((0, 1, (), 2),)), {})
+    for i in range(2))
+
+  class_obj = (ClassName,
+   ACCESS_PUBLIC,
+   BaseType,
+   (), None, (),
+   (
+    (IS_INSTANCE_FIELD, LockProto, ACCESS_PRIVATE, None, (), None, {}),
+    (IS_INSTANCE_FIELD, DictProto, ACCESS_NOFLAGS, None, (('Ldalvik/annotation/Signature;', ((28, 'value', ((23, '"Ljava/util/Map"'), (23, '"<"'), (23, '"Ljava/lang/String;"'), (23, '"Lpbi/executor/types/Base;"'), (23, '">;"'))),), 'system'),), None, {}),
+    init_method,
+    (IS_VIRTUAL_METHOD, '__dir__()' + BaseType, ACCESS_PUBLIC, None, (('Ldalvik/annotation/Throws;', ((28, 'value', ((24, 'Lpbi/executor/exceptions/RuntimeError;'),)),), 'system'),),
+     (4, 1, 3, None, (
+       (34, 0, 'Ljava/util/ArrayList;'), # new-instance v0, Ljava/util/ArrayList;
+       (112, 'Ljava/util/ArrayList;-><init>()V', (0,)), # invoke-direct {v0}, Ljava/util/ArrayList;-><init>()V
+       (84, (1, 3), DictField), # iget-object v1, p0, {ClassName}->__dict__:Ljava/util/Map;
+       (84, (2, 3), LockField), # iget-object v2, p0, {ClassName}->lock:Ljava/util/concurrent/locks/Lock;
+       (113, DirMethod, (0, 1, 2)), # invoke-static {v0, v1, v2}, Lpbi/executor/types/PyClass;->dir(Ljava/util/ArrayList;Ljava/util/Map;Ljava/util/concurrent/locks/Lock;)V
+       (34, 1, ListType), # new-instance v1, Lpbi/executor/types/List;
+       (112, ListCtor2, (1, 0)), # invoke-direct {v1, v0}, Lpbi/executor/types/List;-><init>(Ljava/util/ArrayList;)V
+       (17, 1), # return-object v1
+      ), ()), {}),
+     *getattr_methods,
+    (IS_VIRTUAL_METHOD, '__setattr__(%s%s)V' % (BaseType, BaseType), ACCESS_PUBLIC, None, (('Ldalvik/annotation/Throws;', ((28, 'value', ((24, 'Lpbi/executor/exceptions/RuntimeError;'),)),), 'system'),),
+     (6, 3, 3, None, (
+       (110, StrMethod, (4,)), # invoke-virtual {p1}, Lpbi/executor/types/Base;->__str()Lpbi/executor/types/pString;
+       (12, 0), # move-result-object v0
+       (84, (0, 0), 'Lpbi/executor/types/pString;->str:Ljava/lang/String;'), # iget-object v0, v0, Lpbi/executor/types/pString;->str:Ljava/lang/String;
+       (84, (1, 3), LockField), # iget-object v1, p0, {ClassName}->lock:Ljava/util/concurrent/locks/Lock;
+       (-1, 0),
+       (114, 'Ljava/util/concurrent/locks/Lock;->lock()V', (1,)), # invoke-interface {v1}, Ljava/util/concurrent/locks/Lock;->lock()V
+       (84, (2, 3), DictField), # iget-object v2, p0, {ClassName}->__dict__:Ljava/util/Map;
+       (114, 'Ljava/util/Map;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;', (2, 0, 5)), # invoke-interface {v2, v0, p2}, Ljava/util/Map;->get(Ljava/lang/Object;)Ljava/lang/Object;
+       (-1, 1),
+       (114, 'Ljava/util/concurrent/locks/Lock;->unlock()V', (1,)), # invoke-interface {v1}, Ljava/util/concurrent/locks/Lock;->unlock()V
+       (14,), # return-void
+       (-1, 2),
+       (13, 0), # move-exception v0
+       (114, 'Ljava/util/concurrent/locks/Lock;->unlock()V', (1,)), # invoke-interface {v1}, Ljava/util/concurrent/locks/Lock;->unlock()V
+       (39, 0), # throw v0
+      ), ((0, 1, (), 2),)), {}),
+   )
+  )
+
+  dexData = DexWriter((class_obj,), False)
+  with open("/sdcard/Check2.dex", "wb") as file:
+    file.write(dexData)
+  classLoader = dex(context, dexData)
+  clazz = classLoader(jClassName)
+  return clazz(attrs)
+
+
+
 def python2java(code):
   jClassName = "pbi.eval.Main"
   ClassName = DVM_name(jClassName)
@@ -1084,7 +1268,7 @@ def python2java(code):
 
     functions.append((
       IS_VIRTUAL_METHOD, name, ACCESS_NOFLAGS, None, (annot,),
-      builder(ClassName, inputs, id2name, codes, tries, local_consts, analysis),
+      builder(ClassName, id, inputs, id2name, names, codes, tries, local_consts, analysis),
       {}
     ))
 
@@ -1106,7 +1290,8 @@ def python2java(code):
   append((14,)) # return-void
   extend(end)
 
-  p0 = 4 - 1
+  p0 = 5 - 2
+  p1 = p0 + 1
   init_codes = [
     (112, 'Ljava/lang/Object;-><init>()V', (p0,)), # invoke-direct {p0}, Ljava/lang/Object;-><init>()V
     (18, 0, global_regs), # const v0 = {global_regs}
@@ -1114,6 +1299,7 @@ def python2java(code):
     (91, (0, p0), ClassName + GlobalsField), # iput-object v0, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
     (98, 1, NoneField), # sget-object v1, Lpbi/executor/Main;->None:Lpbi/executor/types/NoneType;
     (91, (1, p0), ClassName + LastExcField), # iput-object v1, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
+    (91, (p1, p0), ClassName + ClassHookField), # iput-object p1, p0, {ClassName}->class_hook:Lpbi/executor/Wrapper;
   ]
   extend = init_codes.extend
   append = init_codes.append
@@ -1137,10 +1323,11 @@ def python2java(code):
     (IS_STATIC_FIELD, VoidMapField[2:], ACCESS_STATIC | ACCESS_PRIVATE, None, (('Ldalvik/annotation/Signature;', ((28, 'value', ((23, '"Ljava/util/Map"'), (23, '"<"'), (23, '"Ljava/lang/String;"'), (23, '"%s"' % BaseType), (23, '">;"'))),), 'system'),), None, {}),
     (IS_INSTANCE_FIELD, GlobalsField[2:], ACCESS_NOFLAGS, None, (), None, {}),
     (IS_INSTANCE_FIELD, LastExcField[2:], ACCESS_NOFLAGS, None, (), None, {}),
+    (IS_INSTANCE_FIELD, ClassHookField[2:], ACCESS_NOFLAGS, None, (), None, {}),
     (IS_DIRECT_METHOD, '<clinit>()V', ACCESS_CONSTRUCTOR | ACCESS_STATIC, None, (),
      (4, 0, 3, None, clinit_codes, ()), {}),
-    (IS_DIRECT_METHOD, '<init>()V', ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
-     (4, 1, 1, None, init_codes, ()), {}),
+    (IS_DIRECT_METHOD, '<init>(%s)V' % BaseType, ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
+     (5, 2, 1, None, init_codes, ()), {}),
     *functions
    )
   )
@@ -1151,8 +1338,13 @@ def python2java(code):
   with open("/sdcard/Check.dex", "wb") as file:
     file.write(dexData)
 
+  id2names = tuple(state[0][1] for state in defs)
+  def wrapped_hook(*args):
+    return class_hook(args, id2names)
+
   classLoader = dex(context, dexData)
-  return classLoader(jClassName)
+  module = classLoader(jClassName)
+  return module(wrapped_hook)
 
 
 

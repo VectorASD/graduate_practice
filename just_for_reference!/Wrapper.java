@@ -67,6 +67,9 @@ public class Wrapper extends Base {
   @Override public Main __main() { return env; }
 
   @Override public String __repr__() { return "<wrapper def#" + reg_locs.id + ">"; }
+
+  // @Override public Class<?> __javatype() { return Wrapper.class; }
+
   static Type type = new Type(Wrapper.class, "wrapper");
   @Override public Type __type__() { return type; }
   @Override public pBoolean isdef() { return Main.True; }

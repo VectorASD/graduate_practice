@@ -13,13 +13,10 @@ module = python2java(__code("polygon.py"))
 print("~" * 53)
 
 print("• module:", module)
-print(module.fields())
-print(module.methods())
-
-inst = module()
-print("• inst:", inst)
+print("F:", module.fields())
+print("M:", module.methods())
 
 print("~" * 53)
-res = inst._m_module()
+res = module._m_module()
 print("~" * 53)
 print("• returned:", res)

@@ -11,6 +11,7 @@ import java.util.concurrent.Semaphore;
 import pbi.executor.exceptions.*;
 import pbi.executor.io.*;
 import pbi.executor.types.*;
+import pbi.executor.types.InstWrap;
 import pbi.sc2.MPM;
 import pbi.sc2.Meaterson;
 
@@ -468,14 +469,21 @@ public class Functions extends Base {
     return new InstWrap(Meaterson.context, Context.class);
   }
 
-  public static JavaWrap __import__(Base obj) throws RuntimeError {
+  public static Base __import__(Base obj) throws RuntimeError {
+    if (obj instanceof JavaWrap)
+      return (JavaWrap) obj;
+
     if (obj instanceof Type)
       return new JavaWrap(((Type) obj).get_obj());
 
-    String str = obj.__str().str;
-    if (str.startsWith("L") && str.endsWith(";"))
-      str = str.substring(1, str.length() - 1).replaceAll("/", ".");
-    return new JavaWrap(str);
+    if (obj instanceof pString) {
+      String str = ((pString) obj).str;
+      if (str.startsWith("L") && str.endsWith(";"))
+        str = str.substring(1, str.length() - 1).replaceAll("/", ".");
+      return new JavaWrap(str);
+    }
+
+    return new InstWrap(obj);
   }
 
 

@@ -458,13 +458,17 @@ class Mark:
 
 Mark0 = Mark(0)
 
-class Blockerson:
-  file = None
-  insts = []
-  Map = [(0, 1, 0)] # Заголовок
-  map_d = {0: (1, 0)}
+class BlockersonContext:
+  def __init__(self):
+    self.file = None
+    self.insts = []
+    self.Map = [(0, 1, 0)] # Заголовок
+    self.map_d = {0: (1, 0)}
 
-  def __init__(self, data = None):
+class Blockerson:
+  def __init__(self, ctx, data = None):
+    self.ctx = ctx
+
     data = BytesIO() if data is None else data
     self.marks = []
     self.arr = []
@@ -489,7 +493,7 @@ class Blockerson:
     self.arr_append = self.arr.append
     self.uleb128_h  = self.hook.append
 
-    Blockerson.insts.append(self)
+    ctx.insts.append(self)
 
   def writeMark(self, mark):
     assert type(mark) is Mark
@@ -511,7 +515,7 @@ class Blockerson:
     return res
 
   def apply(self, pad, Type, conc = None):
-    file = Blockerson.file
+    file = self.ctx.file
 
     file.write(b"\0" * (-file.tell() % pad))
 
@@ -531,8 +535,8 @@ class Blockerson:
     file.write(value)
 
     size = len(value) // conc if conc else len(self.arr)
-    self.Map.append((Type, size, offset))
-    self.map_d[Type] = size, offset
+    self.ctx.Map.append((Type, size, offset))
+    self.ctx.map_d[Type] = size, offset
 
     for mark in self.arr:
       mark.pos += offset
@@ -540,10 +544,10 @@ class Blockerson:
     for mark in self.marks:
       mark[0] += offset
 
-  def final():
-    seek   = Blockerson.file.seek
-    write4 = Blockerson.file.writeInt
-    for inst in Blockerson.insts:
+  def final(ctx):
+    seek   = ctx.file.seek
+    write4 = ctx.file.writeInt
+    for inst in ctx.insts:
       for item in inst.marks:
         offset, mark = item
         #print(offset, mark.pos)
@@ -582,8 +586,9 @@ def descExtractor(desc):
 
 
 class Pooler:
-  def __init__(self):
+  def __init__(self, ctx):
     # формирование Индекса:
+    self.ctx = ctx
     self.Strs, self.Types = set(), set()
     self.Protos, self.Fields, self.Methods = {}, {}, {}
     self.type_list_arr = []
@@ -724,14 +729,14 @@ class Pooler:
   # запись пулов в целевой файл
 
   def write_strs(self, file):
-    str_data_b = Blockerson()
+    str_data_b = Blockerson(self.ctx)
     pos = str_data_b.pos
     MUTF8 = str_data_b.MUTF8
     for str in self.str_arr:
       pos() # генерирует метку, что здесь начинается строка
       MUTF8(str)
 
-    sb = Blockerson()
+    sb = Blockerson(self.ctx)
     writeMark = sb.writeMark
     for mark in str_data_b.arr:
       writeMark(mark) # вынимает эти самые метки
@@ -741,14 +746,14 @@ class Pooler:
     self.str_data_b = str_data_b
 
   def write_types(self):
-    self.type_b = tb = Blockerson()
+    self.type_b = tb = Blockerson(self.ctx)
     write4 = tb.write4
     str_d = self.str_d
 
     for T in self.type_arr: write4(str_d[T])
 
   def write_protos(self):
-    self.type_list_b = tlb = Blockerson()
+    self.type_list_b = tlb = Blockerson(self.ctx)
     tla = self.type_list_arr
     str_d = self.str_d
     type_d = self.type_d
@@ -772,7 +777,7 @@ class Pooler:
       left -= 1
       if L & 1 == 1 and left: write2(0)
 
-    self.proto_b = pb = Blockerson()
+    self.proto_b = pb = Blockerson(self.ctx)
     write4    = pb.write4
     writeMark = pb.writeMark
     for proto, shorty, types, exType in self.proto_arr:
@@ -781,7 +786,7 @@ class Pooler:
       writeMark(type_list_d[types] if types else Mark0)
 
   def write_fields(self):
-    self.field_b = fb = Blockerson()
+    self.field_b = fb = Blockerson(self.ctx)
     write2 = fb.write2
     write4 = fb.write4
     str_d = self.str_d
@@ -793,7 +798,7 @@ class Pooler:
       write4(str_d[name])
 
   def write_methods(self):
-    self.method_b = mb = Blockerson()
+    self.method_b = mb = Blockerson(self.ctx)
     write2 = mb.write2
     write4 = mb.write4
     str_d = self.str_d
@@ -890,25 +895,28 @@ class Pooler:
 
 
 
-def DexWriter(dex_classes):
-  Pool = Pooler()
+def DexWriter(dex_classes, debug = True):
+  ctx = BlockersonContext()
+  Pool = Pooler(ctx)
   # Pool.addStr("string")
   # Pool.addStr("meow!")
   # Pool.addStr("текст 🗿 из 👍 суррогатных 🔥 пар 🎉")
   # Pool.addStr("woof!")
 
-  print("\nСбор пулов")
+  if debug: print("\nСбор пулов")
   collect = Pool.collector()
   for N, classObj in enumerate(dex_classes, 1):
     name = classObj[0]
-    print("%04s %s" % (N, name))
+    if debug: print("%04s %s" % (N, name))
     collect(classObj)
   Pool.sorting()
   allFM_groups = Pool.sort_FM(dex_classes)
 
 
 
-  def write_map(Map, map_d):
+  def write_map():
+    Map = ctx.Map
+    map_d = ctx.map_d
     file.seek(0, 2)
     file.write(b"\0" * (-file.tell() % 4))
     mapO = file.tell()
@@ -921,7 +929,7 @@ def DexWriter(dex_classes):
     return mapO
 
   def write_classes():
-    print("\nЗапаковка классов")
+    if debug: print("\nЗапаковка классов")
     write4    = class_b.write4
     writeMark = class_b.writeMark
     str_d       = Pool.str_d
@@ -930,7 +938,7 @@ def DexWriter(dex_classes):
 
     for N, classObj in enumerate(dex_classes, 1):
       className, accessF, superName, interfaces, sourceStr, classAnnots, allFM_unused = classObj
-      print("%4s %s" % (N, className))
+      if debug: print("%4s %s" % (N, className))
 
       groups = allFM_groups[N - 1]
       class_idx = write_class_data(className, groups)
@@ -1276,15 +1284,15 @@ def DexWriter(dex_classes):
 
   linkS = linkO = mapO = stringIS = stringIO = typeIS = typeIO = protoIS = protoIO = fieldIS = fieldIO = methodIS = methodIO = classDefsIS = classDefsIO = dataIS = dataIO = 0
 
-  annot_b = Blockerson()
-  annot_set_b = Blockerson()
-  annot_set_ref_b = Blockerson()
-  annot_dir_b = Blockerson()
-  value_b = Blockerson()
-  debug_b = Blockerson()
-  codes_b = Blockerson()
-  class_b = Blockerson()
-  class_data_b = Blockerson()
+  annot_b = Blockerson(ctx)
+  annot_set_b = Blockerson(ctx)
+  annot_set_ref_b = Blockerson(ctx)
+  annot_dir_b = Blockerson(ctx)
+  value_b = Blockerson(ctx)
+  debug_b = Blockerson(ctx)
+  codes_b = Blockerson(ctx)
+  class_b = Blockerson(ctx)
+  class_data_b = Blockerson(ctx)
 
   dalvikAssembler = DalvikAssembler(codes_b, Pool)
 
@@ -1292,8 +1300,8 @@ def DexWriter(dex_classes):
 
   # with open(filename, "wb") as file:
   with BytesIO() as file:
-    Blockerson.file = file
-    file = Blockerson(file) # !!! единственный Blockerson с указанным аргументом конструктора
+    ctx.file = file
+    file = Blockerson(ctx, file) # !!! единственный Blockerson с указанным аргументом file
 
     Pool.write_strs(file)
     Pool.write_types()
@@ -1330,13 +1338,12 @@ def DexWriter(dex_classes):
     class_data_b.apply(1, 0x2000) # Данные классов   Не может стоять до codes_b.apply
     debug_b.apply(1, 0x2003) # Информация отладки
 
-    Blockerson.final()
-    Map = Blockerson.Map
-    map_d = Blockerson.map_d
+    Blockerson.final(ctx)
     # print("map:")
-    # for item in Map: print("  ", item)
-    mapO = write_map(Map, map_d)
+    # for item in ctx.Map: print("  ", item)
+    mapO = write_map()
 
+    map_d = ctx.map_d
     stringIS, stringIO = map_d.get(1, (0, 0))
     typeIS,   typeIO   = map_d.get(2, (0, 0))
     protoIS,  protoIO  = map_d.get(3, (0, 0))
@@ -1354,19 +1361,19 @@ def DexWriter(dex_classes):
     file_size = file.size()
     file.seek(32)
     file.write4(file_size)
-    print("\nfile_size:", file_size)
+    if debug: print("\nfile_size:", file_size)
 
     file.seek(32)
-    Hash = sha1(file.file.read()).digest()
+    Hash = sha1(file.ctx.file.read()).digest()
     file.seek(12)
     file.write(Hash)
-    print("sha1:", Hash.hex())
+    if debug: print("sha1:", Hash.hex())
 
     file.seek(12)
-    Hash = adler32(file.file.read())
+    Hash = adler32(file.ctx.file.read())
     file.seek(8)
     file.write4(Hash)
-    print("adler32:", Hash)
+    if debug: print("adler32:", Hash)
 
   return file.getvalue()
 

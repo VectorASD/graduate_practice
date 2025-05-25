@@ -126,3 +126,29 @@ with_defaults(8, 5, 3, 2)
 with_defaults(8, 5, 3, 2, 1)
 try: with_defaults(8, 5, 3, 2, 1, 1)
 except TypeError as e: print(e)
+
+class Simple(object):
+  static = 25
+  def __init__(self, a):
+    print("self:", self, "attr:", a)
+  def great(self, a):
+    print("great:", self, "attr:", a)
+  def __call__(self):
+    print("called!")
+
+print()
+print(Simple, type(Simple))
+print(dir(Simple))
+print(Simple.static)
+try: print(Simple.meow)
+except AttributeError as e: print(e)
+Simple.static = 123
+print(Simple.static)
+
+"""
+inst = Simple(123)
+print(inst.great)
+inst.great()
+inst()
+print(inst.static)
+"""

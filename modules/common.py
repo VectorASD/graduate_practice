@@ -50,6 +50,17 @@ class MyLock:
   def __enter__(self): self.lock()
   def __exit__(self, exc, val, trace): self.unlock()
 
+def Counter():
+  lock = MyLock()
+  n = 0
+  def get():
+    nonlocal n
+    with lock:
+      result = n
+      n += 1
+    return result
+  return get
+
 
 
 sin = Math._mw_sin(DOUBLE)
@@ -107,11 +118,12 @@ def dex(ctx, dexAssertPath):
   jadxArgs = JadxArgs()
 """
 
+dex_next_id = Counter()
 def dex(ctx, dexData):
   # with open("/sdcard/_orig.dex", "rb") as file: dexData = file.read()
 
   CL = getClassLoader.wrap(ctx)().cast(ClassLoader)
-  dexPath = jFile(getDir.wrap(ctx)("dex", MODE_PRIVATE), "name.dex")._m_getAbsolutePath()
+  dexPath = jFile(getDir.wrap(ctx)("dex", MODE_PRIVATE), "name_%s.dex" % dex_next_id())._m_getAbsolutePath()
   dexOutputDir = getDir.wrap(ctx)("outdex", MODE_PRIVATE)._m_getAbsolutePath()
 
   with open(dexPath, "wb") as file: file.write(dexData)
@@ -136,8 +148,8 @@ def dex(ctx, dexData):
 
 from android.os.Environment import Environment
 from java.io.File import jFile
-from java.nio.file.Files import jFiles # min sdk 26!
-from java.nio.file.Path import jPath # min sdk 26!
+from java.nio.file.Files import jFiles # min sdk 26! (8.0)
+from java.nio.file.Path import jPath # min sdk 26! (8.0)
 context = main_context()
 
 class File:
