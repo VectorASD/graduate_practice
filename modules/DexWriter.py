@@ -255,7 +255,7 @@ def DalvikAssembler(codes_b, Pool):
         case 40..42: # goto
           # a = data[1] - line # off
           a = data[1] # off
-          if a < 0:
+          if a <= 0:
             try: a = labels[a] - line
             except KeyError:
               w_byte(42)

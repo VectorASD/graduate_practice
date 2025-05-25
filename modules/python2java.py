@@ -471,7 +471,7 @@ def builder(ClassName, id, inputs, id2name, scopeds, names, py_codes, py_tries, 
 
       case 9: # goto %0
         off = -(pos + line[1])
-        assert off < 0, "off = %s" % off
+        assert off <= 0, "off = %s" % off
         append((40, off)) # goto :{off}
 
       case 10..11: 1/0
