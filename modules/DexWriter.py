@@ -10,6 +10,13 @@ def DalvikAssembler(codes_b, Pool):
   # Позже (уже), добавлю это в грамматический файл, а также, реализую в своём компиляторе, с механикой от Java, чтобы заменить все dispatch-объекты на них
 
   def main(code_data):
+    def task2(pos, off):
+      seek(pos)
+      write2(off)
+    def task4(pos, off):
+      seek(pos)
+      write4(off)
+
     w_byte = codes_b.w_byte
     write  = codes_b.write
     write2 = codes_b.write2
@@ -32,6 +39,9 @@ def DalvikAssembler(codes_b, Pool):
     seek(4, 1) # пока неизвестен размер кода
     begin = tell()
 
+    labels = {}
+    tasks = []; task_add = tasks.append
+
     if type(code_data) is dict:
       code_data = code_data.values()
 
@@ -48,6 +58,10 @@ def DalvikAssembler(codes_b, Pool):
       # Правильнее сказать, bad input - это тип токена, который недопустим после типа предущего токена (например, 2 числа подряд - нельзя)
 
       match code:
+        case -1:
+          last_label = data[1]
+          labels[last_label] = line
+
         case 10..13 | 15..17 | 29..30 | 39: # byte
           write(bytes(data)) # code, reg
         case 28 | 31 | 34: # byte_type
@@ -67,14 +81,21 @@ def DalvikAssembler(codes_b, Pool):
           write2(type_d[data[2]]) # type
         # case 62..67 | 115 | 121..122 | 227..249: # unused
         case _:
-          raise Exception("  ERROR: Bytecode %s unused!" % data)
+          raise Exception("  ERROR: Bytecode %s unused!" % (data,))
 
 
 
         case 0: # nop
           Type = data[1]
-          w_byte(0)
-          w_byte(Type)
+          if line & 1:
+            write2(0) # nop (иначе будет ошибка, например, unaligned array data table)
+            labels[last_label] += 1 # иначе, метка упрётся в nop
+            if Type:
+              w_byte(0)
+              w_byte(Type)
+          else:
+            w_byte(0)
+            w_byte(Type)
           match Type:
             case 0: continue # nop
             case 1: # packed-switch
@@ -111,7 +132,9 @@ def DalvikAssembler(codes_b, Pool):
 
               match n_size:
                 case 1:
-                  for i in arr: w_byte(i)
+                  if type(arr) is bytes: write(arr)
+                  else:
+                    for i in arr: w_byte(i)
                   if len(arr) & 1 == 1: w_byte(0) # pad
                 case 2:
                   for i in arr: write2(i)
@@ -158,7 +181,8 @@ def DalvikAssembler(codes_b, Pool):
           elif b & 0xffff == 0: n_code = 21
           else: n_code = 20
 
-          if n_code != code: print("!!!", code, "->", n_code, data)
+          if (code, n_code) != (18, 19):
+            if n_code != code: print("!!!", code, "->", n_code, data)
 
           w_byte(n_code)
           if n_code == 18: w_byte(b << 4 | a)
@@ -183,16 +207,13 @@ def DalvikAssembler(codes_b, Pool):
         case 24..25: # long_const
           reg = data[1]
           num = data[2]
-          if type(num) is str: num = float(num)
-
-          buff = BytesIO()
-          buff.pack("<q", num)
-          num = buff.getvalue()
+          # if type(num) is str: num = float(num)
+          num = struct.pack("<q" if type(num) is int else "<d", num)
           n_code = 25 if num[:6] == b"\0\0\0\0\0\0" else 24
 
           if n_code != code: print("!!!", code, "->", n_code, data)
 
-          w_byte(code)
+          w_byte(n_code)
           w_byte(reg)
           write(num if n_code == 24 else num[6:])
 
@@ -227,10 +248,22 @@ def DalvikAssembler(codes_b, Pool):
         case 38: # fill_array_data
           w_byte(38)
           w_byte(data[1]) # reg
-          write4(data[2] - line) # off
+          # write4(data[2] - line) # off
+          pos = tell(); write4(0)
+          task_add((task4, pos, line, data[2]))
 
         case 40..42: # goto
-          a = data[1] - line # off
+          # a = data[1] - line # off
+          a = data[1] # off
+          if a <= 0:
+            try: a = labels[a] - line
+            except KeyError:
+              w_byte(42)
+              w_byte(0) # pad
+              pos = tell(); write4(0)
+              task_add((task4, pos, line, a))
+              continue
+
           n_code = 40 if a in range(-128, 128) else 41 if a in range(-0x8000, 0x8000) else 42
 
           if n_code != code: print("!!!", code, "->", n_code, data)
@@ -244,21 +277,29 @@ def DalvikAssembler(codes_b, Pool):
 
         case 43..44: # switch
           off = data[2]
-          (PackedSwitch if code == 43 else SparseSwitch)[off] = line
+          # (PackedSwitch if code == 43 else SparseSwitch)[off] = line
+          (PackedSwitch if code == 43 else SparseSwitch)[line + off] = line
           w_byte(code)
           w_byte(data[1]) # reg
-          write4(off - line)
+          # write4(off - line)
+          write4(off)
 
-        case 50..55: # pair_goto
+        case 50..55: # if
           pair = data[1]
           w_byte(code)
           w_byte(pair[1] << 4 | pair[0])
-          write2(data[2] - line) # off
+          # write2(data[2] - line) # off
+          write2(data[2]) # off
 
-        case 56..61: # byte_goto
+        case 56..61: # ifz
           w_byte(code)
           w_byte(data[1]) # reg
-          write2(data[2] - line) # off
+          # write2(data[2] - line) # off
+          off = data[2]
+          if type(off) is tuple:
+            pos = tell(); write2(0)
+            task_add((task2, pos, line, off[0]))
+          else: write2(off)
 
         case 82..95: # iget_iput
           pair = data[1]
@@ -271,16 +312,46 @@ def DalvikAssembler(codes_b, Pool):
           w_byte(data[1]) # reg
           write2(field_d[data[2]]) # data
 
-        case 110..114: # invoke
+        case 110..114: # invoke-* ("virtual", "super", "direct", "static", "interface")
           regs = data[2]
-          L = len(regs)
           w_byte(code)
-          w_byte(L << 4 | regs[4] if L > 4 else L << 4)
-          write2(method_d[data[1]]) # method
-          w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
-          w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+          # w_byte(L << 4 | regs[4] if L > 4 else L << 4)
+          # write2(method_d[data[1]]) # method
+          # w_byte(regs[1] << 4 | regs[0] if L > 1 else regs[0] if L else 0)
+          # w_byte(regs[3] << 4 | regs[2] if L > 3 else regs[2] if L > 2 else 0)
+          match len(regs): # для ускорения
+            case 0:
+              w_byte(0)
+              write2(method_d[data[1]])
+              write2(0)
+            case 1:
+              w_byte(16)
+              write2(method_d[data[1]])
+              w_byte(regs[0])
+              w_byte(0)
+            case 2:
+              w_byte(32)
+              write2(method_d[data[1]])
+              w_byte(regs[1] << 4 | regs[0])
+              w_byte(0)
+            case 3:
+              w_byte(48)
+              write2(method_d[data[1]])
+              w_byte(regs[1] << 4 | regs[0])
+              w_byte(regs[2])
+            case 4:
+              w_byte(64)
+              write2(method_d[data[1]])
+              w_byte(regs[1] << 4 | regs[0])
+              w_byte(regs[3] << 4 | regs[2])
+            case 5:
+              w_byte(80 | regs[4])
+              write2(method_d[data[1]])
+              w_byte(regs[1] << 4 | regs[0])
+              w_byte(regs[3] << 4 | regs[2])
+            case _: 1/0 # лимит invoke - до пяти регистров-аргументов, иначе, юзайте invoke-*/range
 
-        case 116..120: # invoke_range
+        case 116..120: # invoke-*/range
           start = data[1]
           w_byte(code)
           w_byte(data[2] - start + 1) # count
@@ -367,7 +438,11 @@ def DalvikAssembler(codes_b, Pool):
     seek(begin - 4)
     write4(size)
 
+    for func, pos, line, label in tasks:
+      func(pos, labels[label] - line)
+
     seek(end) # важно!
+    return labels # для tries
 
   return main
 
@@ -383,13 +458,17 @@ class Mark:
 
 Mark0 = Mark(0)
 
-class Blockerson:
-  file = None
-  insts = []
-  Map = [(0, 1, 0)] # Заголовок
-  map_d = {0: (1, 0)}
+class BlockersonContext:
+  def __init__(self):
+    self.file = None
+    self.insts = []
+    self.Map = [(0, 1, 0)] # Заголовок
+    self.map_d = {0: (1, 0)}
 
-  def __init__(self, data = None):
+class Blockerson:
+  def __init__(self, ctx, data = None):
+    self.ctx = ctx
+
     data = BytesIO() if data is None else data
     self.marks = []
     self.arr = []
@@ -414,7 +493,7 @@ class Blockerson:
     self.arr_append = self.arr.append
     self.uleb128_h  = self.hook.append
 
-    Blockerson.insts.append(self)
+    ctx.insts.append(self)
 
   def writeMark(self, mark):
     assert type(mark) is Mark
@@ -436,7 +515,7 @@ class Blockerson:
     return res
 
   def apply(self, pad, Type, conc = None):
-    file = Blockerson.file
+    file = self.ctx.file
 
     file.write(b"\0" * (-file.tell() % pad))
 
@@ -456,8 +535,8 @@ class Blockerson:
     file.write(value)
 
     size = len(value) // conc if conc else len(self.arr)
-    self.Map.append((Type, size, offset))
-    self.map_d[Type] = size, offset
+    self.ctx.Map.append((Type, size, offset))
+    self.ctx.map_d[Type] = size, offset
 
     for mark in self.arr:
       mark.pos += offset
@@ -465,10 +544,10 @@ class Blockerson:
     for mark in self.marks:
       mark[0] += offset
 
-  def final():
-    seek   = Blockerson.file.seek
-    write4 = Blockerson.file.writeInt
-    for inst in Blockerson.insts:
+  def final(ctx):
+    seek   = ctx.file.seek
+    write4 = ctx.file.writeInt
+    for inst in ctx.insts:
       for item in inst.marks:
         offset, mark = item
         #print(offset, mark.pos)
@@ -507,8 +586,9 @@ def descExtractor(desc):
 
 
 class Pooler:
-  def __init__(self):
+  def __init__(self, ctx):
     # формирование Индекса:
+    self.ctx = ctx
     self.Strs, self.Types = set(), set()
     self.Protos, self.Fields, self.Methods = {}, {}, {}
     self.type_list_arr = []
@@ -525,6 +605,7 @@ class Pooler:
     # Type = TypeRenamer(Type)
     # self.addStr(Type)
     self._addType(Type)
+    # assert type(Type) is str
 
   def addTypeList(self, types):
     if not types: return
@@ -624,17 +705,38 @@ class Pooler:
     self.method_arr = sorted(self.Methods.values(), key = comp_method)
     self.method_d = {Method[0] : i for i, Method in enumerate(self.method_arr)}
 
+  def sort_FM(self, dex_classes):
+    def comp_F(obj):
+      return self.field_d["%s->%s" % (className, obj[1])]
+    def comp_M(obj):
+      return self.method_d["%s->%s" % (className, obj[1])]
+
+    allFM_groups = []; add = allFM_groups.append
+    for dex_class in dex_classes:
+      className = dex_class[0]
+      allFM = dex_class[6]
+      groups = ([], [], [], [])
+      g_appends = tuple(group.append for group in groups)
+      for FM in allFM: g_appends[FM[0]](FM)
+
+      A = sorted(groups[0], key = comp_F)
+      B = sorted(groups[1], key = comp_F)
+      C = sorted(groups[2], key = comp_M)
+      D = sorted(groups[3], key = comp_M)
+      add((A, B, C, D))
+    return allFM_groups
+
   # запись пулов в целевой файл
 
   def write_strs(self, file):
-    str_data_b = Blockerson()
+    str_data_b = Blockerson(self.ctx)
     pos = str_data_b.pos
     MUTF8 = str_data_b.MUTF8
     for str in self.str_arr:
       pos() # генерирует метку, что здесь начинается строка
       MUTF8(str)
 
-    sb = Blockerson()
+    sb = Blockerson(self.ctx)
     writeMark = sb.writeMark
     for mark in str_data_b.arr:
       writeMark(mark) # вынимает эти самые метки
@@ -644,14 +746,14 @@ class Pooler:
     self.str_data_b = str_data_b
 
   def write_types(self):
-    self.type_b = tb = Blockerson()
+    self.type_b = tb = Blockerson(self.ctx)
     write4 = tb.write4
     str_d = self.str_d
 
     for T in self.type_arr: write4(str_d[T])
 
   def write_protos(self):
-    self.type_list_b = tlb = Blockerson()
+    self.type_list_b = tlb = Blockerson(self.ctx)
     tla = self.type_list_arr
     str_d = self.str_d
     type_d = self.type_d
@@ -675,7 +777,7 @@ class Pooler:
       left -= 1
       if L & 1 == 1 and left: write2(0)
 
-    self.proto_b = pb = Blockerson()
+    self.proto_b = pb = Blockerson(self.ctx)
     write4    = pb.write4
     writeMark = pb.writeMark
     for proto, shorty, types, exType in self.proto_arr:
@@ -684,7 +786,7 @@ class Pooler:
       writeMark(type_list_d[types] if types else Mark0)
 
   def write_fields(self):
-    self.field_b = fb = Blockerson()
+    self.field_b = fb = Blockerson(self.ctx)
     write2 = fb.write2
     write4 = fb.write4
     str_d = self.str_d
@@ -696,7 +798,7 @@ class Pooler:
       write4(str_d[name])
 
   def write_methods(self):
-    self.method_b = mb = Blockerson()
+    self.method_b = mb = Blockerson(self.ctx)
     write2 = mb.write2
     write4 = mb.write4
     str_d = self.str_d
@@ -714,9 +816,8 @@ class Pooler:
     # annotations
 
     def collectAnnot(annot):
-      T, items = annot
-      addType(T)
-      for TypeV, name, value in items:
+      addType(annot[0])
+      for TypeV, name, value in annot[1]:
         addStr(name)
         encodedValue(TypeV, value)
 
@@ -794,25 +895,28 @@ class Pooler:
 
 
 
-def DexWriter(dex_classes):
-  Pool = Pooler()
+def DexWriter(dex_classes, debug = True):
+  ctx = BlockersonContext()
+  Pool = Pooler(ctx)
   # Pool.addStr("string")
   # Pool.addStr("meow!")
   # Pool.addStr("текст 🗿 из 👍 суррогатных 🔥 пар 🎉")
   # Pool.addStr("woof!")
 
-  print("\nСбор пулов")
+  if debug: print("\nСбор пулов")
   collect = Pool.collector()
   for N, classObj in enumerate(dex_classes, 1):
     name = classObj[0]
-    print("%04s %s" % (N, name))
+    if debug: print("%04s %s" % (N, name))
     collect(classObj)
   Pool.sorting()
-  # Pool.sort_FM(class_arr)
+  allFM_groups = Pool.sort_FM(dex_classes)
 
 
 
-  def write_map(Map, map_d):
+  def write_map():
+    Map = ctx.Map
+    map_d = ctx.map_d
     file.seek(0, 2)
     file.write(b"\0" * (-file.tell() % 4))
     mapO = file.tell()
@@ -825,7 +929,7 @@ def DexWriter(dex_classes):
     return mapO
 
   def write_classes():
-    print("\nЗапаковка классов")
+    if debug: print("\nЗапаковка классов")
     write4    = class_b.write4
     writeMark = class_b.writeMark
     str_d       = Pool.str_d
@@ -833,10 +937,11 @@ def DexWriter(dex_classes):
     type_list_d = Pool.type_list_d
 
     for N, classObj in enumerate(dex_classes, 1):
-      className, accessF, superName, interfaces, sourceStr, classAnnots, allFM = classObj
-      print("%4s %s" % (N, className))
+      className, accessF, superName, interfaces, sourceStr, classAnnots, allFM_unused = classObj
+      if debug: print("%4s %s" % (N, className))
 
-      class_idx, groups = write_class_data(className, allFM)
+      groups = allFM_groups[N - 1]
+      class_idx = write_class_data(className, groups)
       annot_idx = dir_annotation(className, classAnnots, groups)
       values_idx = write_values(groups)
 
@@ -849,11 +954,7 @@ def DexWriter(dex_classes):
       writeMark(class_idx)
       writeMark(values_idx)
 
-  def write_class_data(className, allFM):
-    groups = ([], [], [], [])
-    g_appends = tuple(group.append for group in groups)
-    for FM in allFM: g_appends[FM[0]](FM)
-
+  def write_class_data(className, groups):
     res_g = ([], [], [], [])
     res_appends = tuple(res.append for res in res_g)
     field_d = Pool.field_d
@@ -868,15 +969,15 @@ def DexWriter(dex_classes):
         nameId = (method_d if is_method else field_d)[name]
         delta = nameId - pred_id
         if delta < 0:
-          print((Pool.method_arr if is_method else Pool.field_arr)[pred_id][0])
-          print(name)
+          print((Pool.method_arr if is_method else Pool.field_arr)[pred_id][0], "(%s)" % pred_id)
+          print(name, "(%s)" % nameId)
           raise Exception("Дельта не должна быть меньше нуля (ошибка сортировщика полей & методов)! delta = %s" % delta)
         if is_method: res_append((delta, accessFM, write_codes(codeObj, debug)))
         else: res_append((delta, accessFM))
         pred_id = nameId
 
     if sum(map(len, res_g)) == 0:
-      return 0, (), groups
+      return 0
 
     res = class_data_b.pos2()
     uleb128 = class_data_b.uleb128_h
@@ -886,7 +987,7 @@ def DexWriter(dex_classes):
       for FM in group:
         for i in FM: uleb128(i)
 
-    return res, groups
+    return res
 
   static_values_d = {}
   def write_values(groups): # encoded values для полей
@@ -920,14 +1021,72 @@ def DexWriter(dex_classes):
     write2(registers)
     write2(ins)
     write2(outs)
-    write2(TL)
+    TL_pos = tell()
+    write2(0) # TL
     write4(0) # write4(write_debug(debug))
 
-    dalvikAssembler(code_data)
+    labels = dalvikAssembler(code_data)
 
     if not TL: return res
 
     # Запись try-блоков:
+
+    # Сам придумал технологию со сжатием посредством edge2idx-словаря из пространства байткода в пространство подинтервалов
+    #print("•", *tries, sep = "\n")
+    tries = sorted(
+      (
+        (labels[a], labels[b], {
+          Type: labels[catch]
+          for Type, catch in catches
+        }, labels[catchAll] if catchAll is not None else None)
+        for a, b, catches, catchAll in tries
+      ), key = lambda x: x[0])
+
+    # print("•", *tries, sep = "\n")
+    edges = set(); add = edges.add
+    for start, end, _, _ in tries:
+      add(start)
+      add(end)
+    edges = sorted(edges)
+    edge2idx = {edge: i for i, edge in enumerate(edges)}
+    storage = tuple([{}, None, []] for i in range(len(edges)))
+
+    # print(edge2idx)
+    for start, end, ts, catchAll in tries:
+      if end <= start: continue
+      idx_a = edge2idx[start]
+      idx_b = edge2idx[end]
+      for idx in range(idx_a, idx_b):
+        item = storage[idx]
+        _dict = item[0]
+        order_add = item[2].append
+        for catch in ts:
+          if catch not in _dict: order_add(catch)
+        _dict.update(ts)
+        if catchAll is not None: item[1] = catchAll
+      # print("•", idx_a, idx_b, ts, catchAll)
+
+    # print("\nstorage:", *storage, sep="\n")
+    storage = tuple(
+      (tuple((Type, catches[Type]) for Type in order), catchAll)
+      for catches, catchAll, order in storage)
+    # print("\nstorage:", *storage, sep="\n")
+
+    tries = []; add_sector = tries.append
+    prev = None
+    prevIdx = 0
+    for idx, item in enumerate(storage, 1):
+      if item != prev:
+        if item[0] or item[1]:
+          add_sector((edges[prevIdx], edges[idx], *item))
+        prevIdx = idx
+        prev = item
+
+    # print("•", *tries, sep = "\n")
+
+    # Конец моего хитрого алгоритма... ЗАРАБОТАЛО!!!!!
+
+    TL = len(tries)
 
     start = tell()
     seek(TL * 8, 1)
@@ -955,7 +1114,7 @@ def DexWriter(dex_classes):
       for Type, addr in Catch:
         uleb128(type_d[Type])
         uleb128(addr)
-      if all: write2(CatchAllAddr)
+      if all: uleb128(CatchAllAddr) # НЕ write2(CatchAllAddr)!!!!! На минуточку, эта ошибка прожила все возможные 6 лет!!! Её почти не возможно было заметить, т.к. я толком не обращал внимания на catchall
 
     #print(offs, len(catch_d))
     codes_b.write(b"\0" * (-tell() % 4))
@@ -963,11 +1122,15 @@ def DexWriter(dex_classes):
 
     seek(start)
     for trie, off in zip(tries, offs):
-      startAddr, insnCount, _, _ = trie
+      startAddr, endAddr, _, _ = trie
+      insnCount = endAddr - startAddr
       write4(startAddr)
       write2(insnCount)
       write2(off)
     codes_b.w_byte(len(catch_d))
+
+    seek(TL_pos)
+    write2(TL)
 
     seek(end) # важно!
     return res
@@ -1121,15 +1284,15 @@ def DexWriter(dex_classes):
 
   linkS = linkO = mapO = stringIS = stringIO = typeIS = typeIO = protoIS = protoIO = fieldIS = fieldIO = methodIS = methodIO = classDefsIS = classDefsIO = dataIS = dataIO = 0
 
-  annot_b = Blockerson()
-  annot_set_b = Blockerson()
-  annot_set_ref_b = Blockerson()
-  annot_dir_b = Blockerson()
-  value_b = Blockerson()
-  debug_b = Blockerson()
-  codes_b = Blockerson()
-  class_b = Blockerson()
-  class_data_b = Blockerson()
+  annot_b = Blockerson(ctx)
+  annot_set_b = Blockerson(ctx)
+  annot_set_ref_b = Blockerson(ctx)
+  annot_dir_b = Blockerson(ctx)
+  value_b = Blockerson(ctx)
+  debug_b = Blockerson(ctx)
+  codes_b = Blockerson(ctx)
+  class_b = Blockerson(ctx)
+  class_data_b = Blockerson(ctx)
 
   dalvikAssembler = DalvikAssembler(codes_b, Pool)
 
@@ -1137,8 +1300,8 @@ def DexWriter(dex_classes):
 
   # with open(filename, "wb") as file:
   with BytesIO() as file:
-    Blockerson.file = file
-    file = Blockerson(file) # !!! единственный Blockerson с указанным аргументом конструктора
+    ctx.file = file
+    file = Blockerson(ctx, file) # !!! единственный Blockerson с указанным аргументом file
 
     Pool.write_strs(file)
     Pool.write_types()
@@ -1175,13 +1338,12 @@ def DexWriter(dex_classes):
     class_data_b.apply(1, 0x2000) # Данные классов   Не может стоять до codes_b.apply
     debug_b.apply(1, 0x2003) # Информация отладки
 
-    Blockerson.final()
-    Map = Blockerson.Map
-    map_d = Blockerson.map_d
+    Blockerson.final(ctx)
     # print("map:")
-    # for item in Map: print("  ", item)
-    mapO = write_map(Map, map_d)
+    # for item in ctx.Map: print("  ", item)
+    mapO = write_map()
 
+    map_d = ctx.map_d
     stringIS, stringIO = map_d.get(1, (0, 0))
     typeIS,   typeIO   = map_d.get(2, (0, 0))
     protoIS,  protoIO  = map_d.get(3, (0, 0))
@@ -1199,19 +1361,19 @@ def DexWriter(dex_classes):
     file_size = file.size()
     file.seek(32)
     file.write4(file_size)
-    print("\nfile_size:", file_size)
+    if debug: print("\nfile_size:", file_size)
 
     file.seek(32)
-    Hash = sha1(file.file.read()).digest()
+    Hash = sha1(file.ctx.file.read()).digest()
     file.seek(12)
     file.write(Hash)
-    print("sha1:", Hash.hex())
+    if debug: print("sha1:", Hash.hex())
 
     file.seek(12)
-    Hash = adler32(file.file.read())
+    Hash = adler32(file.ctx.file.read())
     file.seek(8)
     file.write4(Hash)
-    print("adler32:", Hash)
+    if debug: print("adler32:", Hash)
 
   return file.getvalue()
 

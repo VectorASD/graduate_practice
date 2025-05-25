@@ -455,12 +455,12 @@ public class Main {
     defs = new Object[defs_n];
 
     String[] packs = (
-      "rr|rrr|r|r|rri|rr|rrr|ri|rr|i|" + // 0 - 9
+      "rr|rir|r|r|rri|rr|rri|ri|rr|i|" + // 0 - 9
       "rd|rv|vr|r|rr|rr|rr|rr|rr|rr|" +  // 10 - 19
       "rr|rr|rr|rr|rr|rr|rr|rr|rr|rr|" + // 20 - 29
       "rr|rr|rr|rr|rr|r|rrr|ra|rrs|r|" + // 30 - 39
       "rrr|rsr|vr||r|rb|a|r|v|r|" +      // 40 - 49
-      "r|r|r|r|rr|r|rr|r|rr|vs|" +       // 50 - 59
+      "r|r|r|r|rr|r|rr||rr|vs|" +        // 50 - 59
       "rr|rr|rr|rr|rrr|rrri|vrr|vri|rre|rr|" + // 60 - 69
        "rr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 70 - 79
       "rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|rrr|" + // 80 - 89
@@ -595,7 +595,7 @@ public class Main {
 
   static Base FuT = Functions.type;
   static Base FuI = Functions.inst;
-  static Base[] builtins_arr = {
+  public static Base[] builtins_arr = {
     FuT.getattr("print", FuI),
     None,
     // Range.type, // range
@@ -690,10 +690,11 @@ public class Main {
     PyAssertionError.type,   // AssertionError
     FuT.getattr("clear", FuI),
     Struct.type,
+    FuT.getattr("__import__", FuI),
   };
   static String[] pool_arr = MainPoolArr.pool_arr;
 
-
+  
 
 
 
@@ -727,6 +728,13 @@ public class Main {
 
 
   int last_method = -1;
+
+  /* private static Base[] void_arr = new Base[0];
+  private void for_translator() {
+    Base[] no_base = void_arr;
+    Base item = builtins_arr[0];
+    new pFloat(1.234d);
+  } */
 
   private static Map<String, Base> void_map = new HashMap<>();
 
@@ -836,10 +844,9 @@ public class Main {
         /* case 10: // константу в регистр
           regs[i0data[pos]] = consts[i1data[pos]];
           break;*/
-        case 11: // переменную в регистр
-          throw new Exception("11 недопустим");
+        /*case 11: // переменную в регистр
           // regs[i0data[pos]] = get_var(env, i1data[pos]);
-          // break;
+          // break;*/
         case 12: // регистр в переменную
           reg = i1data[pos];
           obj = regs[reg];
@@ -1107,27 +1114,26 @@ public class Main {
           reg = i1data[pos];
           regs[i0data[pos]] = regs[reg].__enter__();
           break;
-        case 55: { // ifn v{reg}.__exit__(type(last_exception), last_exception, None): raise last_exception
+        case 55: { // ifn v%0.__exit__(type(last_exception), last_exception, None): raise last_exception
           reg = i0data[pos];
           if (last_exc instanceof PyException) {
             PyException exc = (PyException) last_exc;
             last_exc = None;
-            Base alarm = regs[reg].__exit__(exc.__type__(), exc, None);
+            Base alarm = regs[reg].__exit__(exc.__type__(), exc);
             if (!alarm.__bool()) throw exc.err;
             // exc.__raise__() очищает stackTrace!!! Так здесь делать нельзя, поэтому throw exc.err;
             // Очистка stackTrace введена ТОЛЬКО на тот случай если будет использоваться тип исключения напрямую вместо
             //   его экземпляра, что оригинальный Python ещё как допускает, иначе бы он копился в этом типе исключения бесконечно
           } else
-            regs[reg].__exit__(None, None, None);
+            regs[reg].__exit__(None, None);
           break; }
         case 56: // v%0.add(v%1)
           reg = i0data[pos];
           obj = regs[reg];
           reg = i1data[pos];
-          ((pSet) obj).add(regs[reg]);
+          obj.add(regs[reg]);
           break;
-        case 57: // v%0 = last_exc
-          regs[i0data[pos]] = last_exc;
+        case 57: // last_exception = None
           last_exc = None;
           break;
         case 58: // if v%0: goto %1
@@ -1623,14 +1629,23 @@ public class Main {
         new String(r_str(r_int(bf), bf, -1), StandardCharsets.UTF_8)
       };
 
-    HashMap<Integer, int[][]> map = new HashMap<>();
+    HashMap<Integer, ArrayList<int[]>> map = new HashMap<>();
     int defs = r_int(bf);
     for (int i = 0; i < defs; i++) {
       int id = r_int(bf);
-      int arrL = r_int(bf);
+      int debugL = r_int(bf);
+      /*int arrL = r_int(bf);
       int[][] arr = new int[arrL][];
       for (int j = 0; j < arrL; j++)
-        arr[j] = new int[] { r_int(bf), r_int(bf), r_int(bf) };
+        arr[j] = new int[] { r_int(bf), r_int(bf), r_int(bf) };*/
+      ArrayList<int[]> arr = new ArrayList<>();
+      for (int j = 0; j < debugL; j++) {
+        int[] marker = new int[] { r_int(bf), r_int(bf), r_int(bf) };
+        // только сейчас через код заметил, что по памяти теперь повторов маркеров в массиве не будет, только указателей на них
+        int n = r_int(bf);
+        for (int k = 0; k < n; k++)
+          arr.add(marker);
+      }
       map.put(id, arr);
     }
 

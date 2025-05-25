@@ -6,16 +6,18 @@ if True: # __name__ == "__main__":
 
 ###~~~### mazers
 
-import common # dex, context
-import DexWriter # DexWriter
-import test_classes # test_classes, TheGreatestBeginning, test_Wrap
+import python2java # python2java
 
+#module = python2java(__code("polygon.py"))
+module = python2java(__code("../TimeTests.py"))
 
+print("~" * 53)
 
-dexData = DexWriter(test_classes)
-with open("/sdcard/Check.dex", "wb") as file:
-  file.write(dexData)
-print("ok!")
+print("• module:", module)
+print("F:", module.fields())
+print("M:", module.methods())
 
-# TheGreatestBeginning(dexData)
-test_Wrap(dexData)
+print("~" * 53)
+res = module._m_module()
+print("~" * 53)
+print("• returned:", res)

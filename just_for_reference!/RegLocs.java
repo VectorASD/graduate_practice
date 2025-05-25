@@ -1,11 +1,13 @@
 package pbi.executor;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import pbi.executor.exceptions.*;
 import pbi.executor.types.Base;
 import pbi.executor.types.Dict;
+import pbi.executor.types.Tuple;
 import pbi.executor.types.pString;
 
 public class RegLocs {
@@ -89,22 +91,41 @@ public class RegLocs {
 
     if (recv_args < without_default) {
       int missing = without_default - recv_args;
-      throw new TypeError("#" + id + "() missing " + missing + " required positional argument" + (missing > 1 ? "s" : ""));
+      throw new TypeError("#" + id + "() missing " + missing + " required positional argument" + (missing != 1 ? "s" : ""));
     }
 
     int args_count = loc_args_0.length;
-    if (star == -1 && recv_args > args_count)
-      throw new TypeError("#" + id + "() takes " + args_count + " positional arguments but " + recv_args + " were given");
+    int i = 0;
+    if (star == -1) {
+      if (recv_args > args_count)
+        throw new TypeError("#" + id + "() takes " + args_count + " positional arguments but " + recv_args + " were given");
 
-    // TODO: не обрабатывается star
+      for (; i < recv_args; i++)
+        regs[loc_args_0[i]] = a_args[i];
+      for (; i < args_count; i++)
+        regs[loc_args_0[i]] = prev_regs[loc_args_1[i]];
 
-    int i;
-    for (i = 0; i < recv_args; i++)
-      regs[loc_args_0[i]] = a_args[i];
+    } else if (recv_args <= args_count) {
+      // Теперь star обрабатывается!
 
-    while (i < args_count) {
-      regs[loc_args_0[i]] = prev_regs[loc_args_1[i]];
-      i++;
+      for (; i < recv_args; i++)
+        regs[loc_args_0[i]] = a_args[i];
+      for (; i < args_count; i++)
+        regs[loc_args_0[i]] = prev_regs[loc_args_1[i]];
+
+      regs[star] = new Tuple();
+
+    } else {
+      for (i = 0; i < args_count; i++)
+        regs[loc_args_0[i]] = a_args[i];
+
+      int star_args = recv_args - args_count;
+      Base[] star_data = new Base[star_args];
+
+      for (; i < recv_args; i++)
+        star_data[i - args_count] = a_args[i];
+
+      regs[star] = new Tuple(star_data);
     }
 
     /* Object removed = kw_args.remove("*");

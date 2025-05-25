@@ -11,6 +11,7 @@ import java.util.concurrent.Semaphore;
 import pbi.executor.exceptions.*;
 import pbi.executor.io.*;
 import pbi.executor.types.*;
+import pbi.executor.types.InstWrap;
 import pbi.sc2.MPM;
 import pbi.sc2.Meaterson;
 
@@ -376,10 +377,10 @@ public class Functions extends Base {
     return new PyThread(th);
   }
   public NoneType runOnUiThread(Base obj, final Base method) throws TypeError {
-    if (!(obj instanceof InstWrap)) throw new TypeError("runOnUiThread: ��اڧէѧݧ��ￄ1�71ￄ1�771ￄ1�71ￄ1�777 Activity �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(obj instanceof InstWrap)) throw new TypeError("runOnUiThread: ��اڧէѧݧ��ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 Activity �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777");
     Object obj2 = ((InstWrap) obj).getObj();
-    if (!(obj2 instanceof Activity)) throw new TypeError("runOnUiThread: ��اڧէѧݧ��ￄ1�71ￄ1�771ￄ1�71ￄ1�777 Activity �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
-    if (!(method instanceof Wrapper)) throw new TypeError("runOnUiThread: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(obj2 instanceof Activity)) throw new TypeError("runOnUiThread: ��اڧէѧݧ��ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 Activity �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777");
+    if (!(method instanceof Wrapper)) throw new TypeError("runOnUiThread: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777");
     Activity activity = (Activity) obj2;
     activity.runOnUiThread(new Runnable() {
       public void run() {
@@ -390,10 +391,10 @@ public class Functions extends Base {
     return Main.None;
   }
   public NoneType runOnGLThread(Base obj, final Base method) throws TypeError {
-    if (!(obj instanceof InstWrap)) throw new TypeError("runOnGLThread: ��اڧէѧݧ�� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(obj instanceof InstWrap)) throw new TypeError("runOnGLThread: ��اڧէѧݧ�� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777");
     Object obj2 = ((InstWrap) obj).getObj();
-    if (!(obj2 instanceof GLSurfaceView)) throw new TypeError("runOnGLThread: ��اڧէѧݧ�� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
-    if (!(method instanceof Wrapper)) throw new TypeError("runOnUiThread: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(obj2 instanceof GLSurfaceView)) throw new TypeError("runOnGLThread: ��اڧէѧݧ�� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777");
+    if (!(method instanceof Wrapper)) throw new TypeError("runOnUiThread: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777");
     GLSurfaceView view = (GLSurfaceView) obj2;
     view.queueEvent(new Runnable() {
       public void run() {
@@ -419,22 +420,22 @@ public class Functions extends Base {
     }
   };
   public Base await(Base obj, Base method) throws TypeError {
-    if (!(obj instanceof InstWrap)) throw new TypeError("await: ��اڧէѧݧڧ�� Activity �ڧݧ� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    if (!(obj instanceof InstWrap)) throw new TypeError("await: ��اڧէѧݧڧ�� Activity �ڧݧ� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777");
     Object obj2 = ((InstWrap) obj).getObj();
     MyRunnable runnable;
     // Thread th = Thread.currentThread();
     Semaphore sem = new Semaphore(0);
     if (obj2 instanceof GLSurfaceView) {
-      if (!(method instanceof Wrapper)) throw new TypeError("await: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+      if (!(method instanceof Wrapper)) throw new TypeError("await: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777");
       GLSurfaceView gl = (GLSurfaceView) obj2;
       runnable = new MyRunnable(method, sem);
       gl.queueEvent(runnable);
     } else if (obj2 instanceof Activity) {
-      if (!(method instanceof Wrapper)) throw new TypeError("await: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+      if (!(method instanceof Wrapper)) throw new TypeError("await: ��اڧէѧݧѧ�� ���ߧܧ�ڧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �ӧ����ԧ� �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777");
       Activity activity = (Activity) obj2;
       runnable = new MyRunnable(method, sem);
       activity.runOnUiThread(runnable);
-    } else throw new TypeError("await: ��اڧէѧݧڧ�� Activity �ڧݧ� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�777");
+    } else throw new TypeError("await: ��اڧէѧݧڧ�� Activity �ڧݧ� GLSurfaceView �� �ܧѧ�֧��ӧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 ��֧�ӧ�ԧￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777 �ѧ�ԧ�ާ֧ߧ�ￄ1�71ￄ1�771ￄ1�71ￄ1�7771ￄ1�71ￄ1�771ￄ1�71ￄ1�7777");
     try { sem.acquire(); }
     catch (InterruptedException e) { Main.print_error("await:starter", e, method); }
     return runnable.result;
@@ -466,6 +467,23 @@ public class Functions extends Base {
 
   public static InstWrap main_context() {
     return new InstWrap(Meaterson.context, Context.class);
+  }
+
+  public static Base __import__(Base obj) throws RuntimeError {
+    if (obj instanceof JavaWrap)
+      return (JavaWrap) obj;
+
+    if (obj instanceof Type)
+      return new JavaWrap(((Type) obj).get_obj());
+
+    if (obj instanceof pString) {
+      String str = ((pString) obj).str;
+      if (str.startsWith("L") && str.endsWith(";"))
+        str = str.substring(1, str.length() - 1).replaceAll("/", ".");
+      return new JavaWrap(str);
+    }
+
+    return new InstWrap(obj);
   }
 
 
