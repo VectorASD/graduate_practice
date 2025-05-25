@@ -26,10 +26,11 @@ print("• returned:", res)
 
 
 
-#T = time()
+# T = time()
 import myGL
 import myGLclasses
-# print("ok!", time() - T) 0.016 s.
+import myGLtext
+# print("ok!", time() - T) # 0.02 s.
 
 
 
@@ -87,7 +88,7 @@ class myRenderer:
       self.fpsS = S = sum(arr) * 10 // len(arr)
       if self.CW_mode: text = "fps: %s\ncam: %.2f %.2f %.2f\nrot: %.2f %.2f %.2f" % (S, self.camX, self.camY, self.camZ, self.yaw, self.pitch, self.roll)
       else: text = "fps: %s" % S
-      # self.glyphs.setText(self.fpsText, text, self.W / 16)
+      self.glyphs.setText(self.fpsText, text, self.W / 16)
     return self.fpsS
 
 
@@ -129,7 +130,9 @@ class myRenderer:
       skyBoxLoader(d2textureProgram(skyboxLabeled, (1, 6), self), (0, 1, 2, 3, 4, 5)),
       None,
     )
+    self.glyphs = glyphTextureGenerator(self)
     self.colorama = Colorama(self)
+    self.textureChain = TextureChain(self)
 
     # настройка шейдерных программ
 
@@ -195,6 +198,15 @@ class myRenderer:
     if self.FBO is not None: deleteFrameBuffer(self.FBO)
     self.FBO = newFrameBuffer(width, height, True)
 
+    # настройка glyphs
+
+    glyphs = self.glyphs
+    glyphs.printer = False
+    glyphs.setDirection(1)
+    glyphs.setHeight(self.W / 16)
+    glyphs.setColor(0xadddff)
+    self.fpsText = glyphs.add(0, 0, 1, "fps: ?")
+
     self.ready2 = True
 
 
@@ -214,6 +226,7 @@ class myRenderer:
 
     # GUI
     self.gridProgram.draw(self.WH_ratio, self.eventN)
+    self.glyphs.draw(self.WH_ratio)
 
   def drawColorDimension(self):
     glClearColor(0, 0, 0, 1)
@@ -248,9 +261,29 @@ class myRenderer:
     glEnable(GL_CULL_FACE)
     glEnable(GL_DEPTH_TEST)
 
+    glBindFramebuffer(GL_FRAMEBUFFER, self.FBO[0])
+    queue = self.clickHandlerQueue
+    cbs = []
+    if queue:
+      self.drawColorDimension()
+      for x, y in queue:
+        rgba = self.readPixel(x, self.H - y)
+        cb = self.colorama.to_n(rgba)
+        print("👆 click CB:", cb)
+        if cb is not None: cbs.append(cb)
+      self.clickHandlerQueue.clear()
+
     if self.skyboxN == 1:
       self.drawColorDimension()
     else: self.drawScene()
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0)
+
+    if cbs:
+      for cb in cbs: cb()
+
+    self.textureChain.postprocessing()
+    #print("🫢", glGetError())
 
 
 
@@ -302,6 +335,14 @@ class myRenderer:
     self.camera = self.camX, self.camY, self.camZ
     self.calcViewMatrix()
 
+  def restart(self):
+    print2("~" * 53)
+    self.ready = self.ready2 = False
+    self.W = self.H = self.WH_ratio = -1
+    self.FBO = None
+    SkyBox.restart()
+    self.findNearestPlanet = lambda: None
+
   reverse = {
     "cr": onSurfaceCreated,
     "ch": onSurfaceChanged,
@@ -312,6 +353,7 @@ class myRenderer:
 
 
 
+# Отрисовывается, если в инициализации что-то крашнется:
 main_xml = """
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout
