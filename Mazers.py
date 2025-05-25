@@ -115,11 +115,24 @@ class myRenderer:
 
     # все негенерированные (из ресурсника) текстуры в одном месте
 
+    skybox_labeled = __resource("skybox_labeled.png")
+    skyboxLabeled = newTexture2(skybox_labeled)
+
     # все шейдерные программы в одном месте
+
+    self.skyboxes = (
+      skyBoxLoader(d2textureProgram(skyboxLabeled, (1, 6), self), (0, 1, 2, 3, 4, 5)),
+      None,
+    )
 
     # настройка шейдерных программ
 
+    self.skyboxN       = 0
+    self.currentSkybox = self.skyboxes[self.skyboxN]
+
     # загрузка моделей
+
+    self.models = ()
 
     # первый сигнал перерасчёта матриц модели во всей иерархии моделей
 
@@ -135,8 +148,6 @@ class myRenderer:
     self.updMVP = False
 
     for model in self.models: model.recalc(MVPmatrix)
-    self.rbxModel.recalc(MVPmatrix)
-    if self.character: self.character.recalc(MVPmatrix)
 
   def calcViewMatrix(self):
     q = Quaternion.fromYPR(self.yaw, self.pitch, self.roll)
@@ -154,10 +165,42 @@ class myRenderer:
   def onSurfaceChanged(self, gl10, width, height):
     if not self.ready: return
     print("📽️ onSurfaceChanged", gl10, width, height)
+    if width == self.W and height == self.H: return
+
+    glViewport(0, 0, width, height)
+    self.W, self.H, self.WH_ratio = width, height, width / height
+
+    perspectiveM(self.projectionM, 0, 90, self.WH_ratio, 0.01, 1000000)
+    self.calcMVPmatrix()
+
+    if self.FBO is not None: deleteFrameBuffer(self.FBO)
+    self.FBO = newFrameBuffer(width, height, True)
 
     self.ready2 = True
 
 
+
+  def drawScene(self):
+    # glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+    glClear(GL_DEPTH_BUFFER_BIT)
+
+    skybox = self.currentSkybox
+    if skybox is not None: skybox.draw()
+
+  def drawColorDimension(self):
+    glClearColor(0, 0, 0, 1)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+    if not self.CW_mode:
+      self.colorama.draw(self.SolarSystem)
+
+  def readPixel(self, x, y):
+    buffer = MyBuffer.allocateDirect(4)
+    buffer._m_order(MyBuffer.nativeOrder)
+    glReadPixels(round(x), round(y), 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, buffer)
+    arr = BYTE.new_array(buffer._m_remaining())
+    buffer._m_get(arr)
+    return bytes(arr)
 
   def onDrawFrame(self, gl10):
     if not self.ready2: return
@@ -170,6 +213,15 @@ class myRenderer:
     #print("📽️ onDraw", gl)
 
     self.fps()
+
+    if self.updMVP: self.calcMVPmatrix()
+
+    if self.skyboxN == 1:
+      self.drawColorDimension()
+    else: self.drawScene()
+
+    glEnable(GL_CULL_FACE)
+    glEnable(GL_DEPTH_TEST)
 
 
 
