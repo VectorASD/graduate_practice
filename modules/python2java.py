@@ -67,7 +67,7 @@ AttributeErrorType = "Lpbi/executor/exceptions/AttributeError;"
 # Поля
 
 GlobalsField = "->globals:" + BaseArrType
-LocalsField = "->locals:" + BaseArrType
+IdField = "->id:Ljava/lang/Integer;"
 TypeField = "->type:" + TypeType
 LastExcField = "->last_exc:" + BaseType
 ClassHookField = "->class_hook:" + BaseType
@@ -168,8 +168,8 @@ bultin_expections = bultin_expections()
 
 
 
-def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_consts, analysis):
-  def reg_is_null(reg, py_reg):
+def builder(ClassName, id, inputs, id2name, scopeds, names, py_codes, py_tries, local_consts, analysis):
+  def reg_is_null(reg, name):
     # проверяется reg-регистр на null
     # 4 + 4 + 4 + 6 + 6 + 4 + 6 + 6 + 2 + 4 + 6 + 2 = 54 bytes
     # new: 4 + 4 + 4 + 6 + 2 = 20 bytes!
@@ -188,7 +188,7 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
     extend((
       (57, reg, 10), # if-nez v{reg}, :{+10 * 2 bytes}
       (34, 1, NameErrorType), # new-instance v1, Lpbi/executor/exceptions/NameError;
-      (26, 2, "name 'regs:%s' is not defined" % py_reg), # const-string v2, "name 'regs:{py_reg}' is not defined"
+      (26, 2, "name '%s' is not defined" % name), # const-string v2, "name 'regs:{py_reg}' is not defined"
       (112, NameErrorCtor, (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/exceptions/NameError;-><init>(Ljava/lang/String;)V
       (39, 1), # throw v1
     ))
@@ -207,7 +207,7 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
       (70, reg, 0, tmp), # aget-object v{reg} = v0[v{tmp}]
     ))
     if is_args and NOT_CHECK_REGS_IN_ARGS: return
-    reg_is_null(reg, py_reg)
+    reg_is_null(reg, "regs:%s" % py_reg)
 
   def put_reg(idx, reg):
     tmp = 2 - int(reg == 2)
@@ -221,23 +221,61 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
       get_reg(reg, var)
       return
     char = var[0]
+    name = var[1:]
     if char == "g":
       extend((
         (84, (reg, p0), ClassName + GlobalsField), # iget-object v{reg}, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
-        (18, tmp, int(var[1:])), # const v{tmp} = {...}
+        (18, tmp, int(name)), # const v{tmp} = {...}
         (70, reg, reg, tmp), # aget-object v{reg} = v{reg}[v{tmp}]
       ))
+      reg_is_null(reg, "globals:" + name)
       return
-    print("get_var:", reg, var); 1/0
+    if char == "n":
+      func, local = name.split("_")
+      WrapName = id2name(func)
+      scopeds.add(int(func))
+      extend((
+        (98, reg, WrapName + IdField), # sget-object v{reg}, {WrapName}->id:Ljava/lang/Integer;
+        (114, 'Ljava/util/Map;->get(Ljava/lang/Object;)Ljava/lang/Object;', (p2, reg)), # invoke-interface {p2, v{reg}}, Ljava/util/Map;->get(Ljava/lang/Object;)Ljava/lang/Object;
+        (12, reg), # move-result-object v{reg}
+        (31, reg, BaseArrType), # check-cast v{reg}, [Lpbi/executor/types/Base;
+        (18, tmp, int(local)), # const v{tmp} = {...}
+        (70, reg, reg, tmp), # aget-object v{reg} = v{reg}[v{tmp}]
+      ))
+      reg_is_null(reg, "scope:" + name)
+      return
+    1/0
 
-  def put_var(idx, reg):
-    if type(idx) is int:
-      put_reg(idx, reg)
+  def put_var(var):
+    reg = 1
+    if type(var) is int:
+      put_reg(var, reg)
       return
-    print("var:", idx, reg); 1/0
-    #match reg & 7:
-    #  case 2: 
-    #  case _: print(idx >> 3, idx & 7); 1/0
+    char = var[0]
+    name = var[1:]
+    tmp = reg + 1 # 2
+    tmp2 = reg + 2 # 3
+    if char == "g":
+      extend((
+        (84, (tmp, p0), ClassName + GlobalsField), # iget-object v{tmp}, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
+        (18, tmp2, int(name)), # const v{tmp2} = {...}
+        (77, reg, tmp, tmp2), # aput-object v{tmp}[v{tmp2}] = v{reg}
+      ))
+      return
+    if char == "n":
+      func, local = name.split("_")
+      WrapName = id2name(func)
+      scopeds.add(int(func))
+      extend((
+        (98, tmp, WrapName + IdField), # sget-object v{tmp}, {WrapName}->id:Ljava/lang/Integer;
+        (114, 'Ljava/util/Map;->get(Ljava/lang/Object;)Ljava/lang/Object;', (p2, tmp)), # invoke-interface {p2, v{tmp}}, Ljava/util/Map;->get(Ljava/lang/Object;)Ljava/lang/Object;
+        (12, tmp), # move-result-object v{tmp}
+        (31, tmp, BaseArrType), # check-cast v{tmp}, [Lpbi/executor/types/Base;
+        (18, tmp2, int(local)), # const v{tmp2} = {...}
+        (77, reg, tmp, tmp2), # aput-object v{tmp}[v{tmp2}] = v{reg}
+      ))
+      return
+    1/0
 
   def make_base_array(args, is_regs = True, arr_extend = 0):
     if not args:
@@ -303,12 +341,10 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
 
 
 
-  registers = 4 + inputs
-  outsSize = 3 # пока не разобрался, как ЭТО правильно считать...
-
-  p0 = registers - inputs # экземпляр pbi.eval.Main
+  p0 = 4 # экземпляр pbi.eval.Main
   if inputs > 1:
     p1 = p0 + 1 # аргумент локальных регистров
+    p2 = p0 + 2 # аргумент со scope-словарём
 
   # v8 - i_arr (здесь: массив констант)
   # v19 - pos (счётчик команд)
@@ -321,7 +357,7 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
 
   if inputs == 1:
     codes = [(84, (0, p0), ClassName + GlobalsField)] # iget-object v0, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
-  else: # inputs == 2
+  else: # inputs > 1
     codes = [(7, 0, p1)] # move-object v0, p1
 
   extend = codes.extend
@@ -365,7 +401,7 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
 
   for pos, line in enumerate(py_codes):
     # Коды оставшихся операций:
-    # 12, 64, 68, 98, 99
+    # 68, 98, 99
     match line[0]:
       case -1: # label
         append((-1, -pos))
@@ -416,7 +452,7 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
           (110, GetItemMethod, (1, 2)), # invoke-virtual {v1, v2}, Lpbi/executor/types/Base;->__getitem__(I)Lpbi/executor/types/Base;
           (12, 1), # move-result-object v1
         ))
-        if line[0] == 66: put_var(line[1], 1) # var(line[1]) = v1
+        if line[0] == 66: put_var(line[1]) # var(line[1]) = v1
         else: put_reg(line[1], 1) # regs[line[1]] = v1
 
       case 7: # ifn v%0: goto %1
@@ -440,7 +476,9 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
 
       case 10..11: 1/0
 
-      # 12
+      case 12: # %0 = v%1
+        get_reg(1, line[2]) # const v1 = regs[line[2]]
+        put_var(line[1]) # var(line[1]) = v1
 
       case 13: # v%0 = tuple(v%0) (tuplemaker)
         get_reg(2, line[1], 3) # const v3 = {line[1]}, v2 = regs[v3]
@@ -531,12 +569,19 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
 
       case 42: # %0 = def #%1     (function)
         WrapType = id2name(line[2])
-        WrapCtor = "%s-><init>(%s%s)V" % (WrapType, ClassName, BaseArrType)
-        extend((
-          (34, 1, WrapType), # new-instance v1, {WrapType}
-          (112, WrapCtor, (1, p0, 0)), # invoke-direct {v1, p0, v0}, {WrapType}-><init>({ClassName}{BaseArrType})V
-        ))
-        put_var(line[1], 1) # var(line[1]) = v1
+        WrapCtor = "%s-><init>(%s%sLjava/util/Map;)V" % (WrapType, ClassName, BaseArrType)
+        if inputs > 1:
+          extend((
+            (34, 1, WrapType), # new-instance v1, {WrapType}
+            (112, WrapCtor, (1, p0, 0, p2)), # invoke-direct {v1, p0, v0, p2}, {WrapType}-><init>({ClassName}{BaseArrType}Ljava/util/Map;)V
+          ))
+        else:
+          extend((
+            (98, 2, ClassName + VoidMapField), # sget-object v2, {ClassName}->void_map:Ljava/util/Map;
+            (34, 1, WrapType), # new-instance v1, {WrapType}
+            (112, WrapCtor, (1, p0, 0, 2)), # invoke-direct {v1, p0, v0, v2}, {WrapType}-><init>({ClassName}{BaseArrType}Ljava/util/Map;)V
+          ))
+        put_var(line[1]) # var(line[1]) = v1
 
       case 43: # return
         extend((
@@ -545,7 +590,7 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
         ))
 
       case 44: # return v%0
-        get_reg(0, line[1]) # const v0 = regs[line[1]]
+        get_reg(0, line[1], 1) # const v1 = {line[1]}, v0 = regs[v1]
         append((17, 0)) # return-object v0
 
       case 45: # v%0 = tuple(v%1_args)
@@ -599,7 +644,7 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
           (84, (1, 1), ErrorField), # iget-object v1, v1, Lpbi/executor/exceptions/RuntimeError;->err:Lpbi/executor/exceptions/PyException;
           (91, (1, p0), ClassName + LastExcField), # iput-object v1, p0, {ClassName}->last_exc:Lpbi/executor/types/Base;
         ))
-        put_var(line[1], 1) # var(line[1]) = v1
+        put_var(line[1]) # var(line[1]) = v1
 
       case 49: # raise v%0
         get_reg(1, line[1]) # const v1 = regs[line[1]]
@@ -682,7 +727,7 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
           (34, 1, JavaWrapType), # new-instance v1, Lpbi/executor/types/JavaWrap;
           (112, JavaWrapCtor, (1, 2)), # invoke-direct {v1, v2}, Lpbi/executor/types/JavaWrap;-><init>(Ljava/lang/String;)V
         ))
-        put_var(line[1], 1) # var(line[1]) = v1
+        put_var(line[1]) # var(line[1]) = v1
 
       case 60: # v%0 = reg v%1
         append((18, 1, line[1])) # const v1 = {line[1]}
@@ -692,16 +737,14 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
       case 61: 1/0
 
       case 62: # v%0 = global %1
-        extend((
-          (84, (1, p0), ClassName + GlobalsField), # iget-object v1, p0, {ClassName}->globals:[Lpbi/executor/types/Base;
-          (18, 2, line[2]), # const v2 = {line[2]}
-          (70, 1, 1, 2), # aget-object v1 = v1[v2]
-        ))
+        get_var(1, "g%s" % line[2], 2) # v1 = global_var(line[2])
         put_reg(line[1], 1) # regs[line[1]] = 1
 
       case 63: 1/0
 
-      # 64
+      case 64: # v%0 = scope %1 %2
+        get_var(1, "n%s_%s" % (line[2], line[3]), 2) # v1 = scope_var(line[2], line[3])
+        put_reg(line[1], 1) # regs[line[1]] = 1
 
       # 65 реализовано внутри 67
 
@@ -724,7 +767,7 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
           (12, 1), # move-result-object v1
         ))
 
-        if code == 67: put_var(line[1], 1) # var(line[1]) = v1
+        if code == 67: put_var(line[1]) # var(line[1]) = v1
         else: put_reg(line[1], 1) # regs[line[1]] = v1
 
         if code == 65: test_tuple_and_size(line[2])
@@ -850,9 +893,8 @@ def builder(ClassName, id, inputs, id2name, names, py_codes, py_tries, local_con
         # print("code_%s not supported!" % line[0])
         raise Exception("code_%s not supported!" % line[0])
 
-  # for line in codes: print(line)
-
-  return (registers, inputs, outsSize, None, codes, tries)
+  outsSize = 4 # Похоже, это максимальное количество аргументов всех invoke'ов данного метода. Просматривается явная связь с insSize, но речь не о собственном методе, а о том, что он вызывает
+  return (p0 + inputs, inputs, outsSize, None, codes, tries)
 
 
 
@@ -931,7 +973,7 @@ def apply_consts(ClassName, extend, append, consts, end):
 
 
 
-def method_wrapper(id2name, id, ClassName, name, state):
+def method_wrapper(id2name, id, ClassName, name, state, scopeds):
   (rln_count, names), (args, star, dstar), codes, labels, tries, local_consts = state
 
   WrapName = id2name(id)
@@ -939,6 +981,8 @@ def method_wrapper(id2name, id, ClassName, name, state):
   MainField = "%s->%s" % (WrapName, MainFieldProto)
   PrevRegsProto = "prev_regs:" + BaseArrType
   PrevRegsField = "%s->%s" % (WrapName, PrevRegsProto)
+  ScopeProto = "scope:Ljava/util/Map;"
+  ScopeField = "%s->%s" % (WrapName, ScopeProto)
 
   clinit_codes = (
     (34, 0, TypeType), # new-instance v0, Lpbi/executor/types/Type;
@@ -946,28 +990,41 @@ def method_wrapper(id2name, id, ClassName, name, state):
     (26, 2, "wrapper"), # const-string v2, "wrapper"
     (112, TypeCtor, (0, 1, 2)), # invoke-direct {v0, v1, v2}, Lpbi/executor/types/Type;-><init>(Ljava/lang/Class;Ljava/lang/String;)V
     (105, 0, WrapName + TypeField), # sput-object v0, {WrapName}->type:Lpbi/executor/types/Type;
+    (18, 0, id), # const v0 = {id}
+    (113, 'Ljava/lang/Integer;->valueOf(I)Ljava/lang/Integer;', (0,)), # invoke-static {v0}, Ljava/lang/Integer;->valueOf(I)Ljava/lang/Integer;
+    (12, 0), # move-result-object v0
+    (105, 0, WrapName + IdField), # sput-object v0, {WrapName}->id:Ljava/lang/Integer;
     (14,), # return-void
   )
   clinit_method = (IS_DIRECT_METHOD, "<clinit>()V", ACCESS_CONSTRUCTOR | ACCESS_STATIC, None, (),
    (3, 0, 3, None, clinit_codes, ()), {})
 
-  registers = 4
-  inputs = 3
-  p0 = registers - inputs # this
+  p0 = 0 # this
   p1 = p0 + 1 # pbi.eval.Main
   p2 = p0 + 2 # prev_regs
+  p3 = p0 + 3 # prev_scope
+
+  used_in_scopes = id in scopeds
 
   init_codes = (
-    (112, BaseType + "-><init>()V", (p0,)), # invoke-direct {p0}, Lpbi/lang/Object;-><init>()V
-    (18, 0, rln_count), # const v0 = {rln_count}
-    (35, (0, 0), BaseArrType),  # new-array v0, v0, [Lpbi/executor/types/Base;
-    (91, (0, p0), WrapName + LocalsField), # iput-object v0, p0, {WrapName}->locals:[Lpbi/executor/types/Base;
     (91, (p1, p0), MainField), # iput-object p1, p0, {WrapName}->main:{ClassName}
     (91, (p2, p0), PrevRegsField), # iput-object p1, p0, {WrapName}->prev_regs:{BaseArrType}
+    # p1 и p2 больше не понадобятся - используем, как обычные регистры
+
+    (112, BaseType + "-><init>()V", (p0,)), # invoke-direct {p0}, Lpbi/lang/Object;-><init>()V
+
+    *((
+      (34, p1, 'Ljava/util/HashMap;'), # new-instance p1, Ljava/util/HashMap;
+      (112, 'Ljava/util/HashMap;-><init>(Ljava/util/Map;)V', (p1, p3)), # invoke-direct {p1, p3}, Ljava/util/HashMap;-><init>(Ljava/util/Map;)V
+      (91, (p1, p0), ScopeField), # iput-object p1, p0, {WrapName}->scope:Ljava/util/Map;
+#   ) if used_in_scopes else (
+    ) if True else ( # а вот это очень странно
+      (91, (p3, p0), ScopeField), # iput-object p3, p0, {WrapName}->scope:Ljava/util/Map;
+    )),
     (14,), # return-void
   )
-  init_method = (IS_DIRECT_METHOD, "<init>(%s%s)V" % (ClassName, BaseArrType), ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
-    (registers, inputs, 1, None, init_codes, ()), {})
+  init_method = (IS_DIRECT_METHOD, "<init>(%s%sLjava/util/Map;)V" % (ClassName, BaseArrType), ACCESS_CONSTRUCTOR | ACCESS_PUBLIC, None, (),
+    (p0 + 4, 4, 2, None, init_codes, ()), {})
 
   registers = 7
   inputs = 3
@@ -976,10 +1033,8 @@ def method_wrapper(id2name, id, ClassName, name, state):
   p2 = p0 + 2 # kw_args
 
   caller_codes = [
-    (18, 0, 0), # const/4 v0, 0x0
     (18, 1, rln_count), # const v1 = {rln_count}
-    (84, (2, p0), WrapName + LocalsField), # iget-object v2, p0, {WrapName}->locals:[Lpbi/executor/types/Base;
-    (113, 'Ljava/util/Arrays;->fill([Ljava/lang/Object;IILjava/lang/Object;)V', (2, 0, 1, 0)), # invoke-static {v2, v0, v1, v0}, Ljava/util/Arrays;->fill([Ljava/lang/Object;IILjava/lang/Object;)V
+    (35, (2, 1), BaseArrType), # new-array v2, v1, [Lpbi/executor/types/Base;
     (33, 0, p1), # array-length v0, p1
   ]
   extend = caller_codes.extend
@@ -1053,9 +1108,19 @@ def method_wrapper(id2name, id, ClassName, name, state):
       (77, 1, 2, 3), # aput-object v2[v3] = v1
     ))
 
+  # p1 и p2 теперь свободны
   extend((
     (84, (0, p0), MainField), # iget-object v0, p0, {WrapName}->main:{ClassName}
-    (110, name, (0, 2)), # invoke-virtual {v0, v2}, Lpbi/eval/Main;->func_1([Lpbi/executor/types/Base;)Lpbi/executor/types/Base;
+    (84, (1, p0), ScopeField), # iget-object v1, p0, {WrapName}->scope:Ljava/util/Map;
+  ))
+  if used_in_scopes:
+    # ОГРОМНОЕ количество ЛИШНЕЙ runtime-работы отбирает эта ПРОСТЕЙШАЯ оптимизация!
+    extend((
+      (98, p1, WrapName + IdField), # sget-object p1, {WrapName}->id:Ljava/lang/Integer;
+      (114, 'Ljava/util/Map;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;', (1, p1, 2)), # invoke-interface {v1, p1, v2}, Ljava/util/Map;->put(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;
+    ))
+  extend((
+    (110, name, (0, 2, 1)), # invoke-virtual {v0, v2, v1}, Lpbi/eval/Main;->func_1([Lpbi/executor/types/Base;Ljava/util/Map;)Lpbi/executor/types/Base;
     (12, 0), # move-result-object v0
     (17, 0), # return-object v0
   ))
@@ -1068,9 +1133,10 @@ def method_wrapper(id2name, id, ClassName, name, state):
    (), None, (),
    (
     (IS_STATIC_FIELD, TypeField[2:], ACCESS_STATIC, None, (), None, {}),
+    (IS_STATIC_FIELD, IdField[2:], ACCESS_STATIC, None, (), None, {}),
     (IS_INSTANCE_FIELD, MainFieldProto, ACCESS_NOFLAGS, None, (), None, {}),
     (IS_INSTANCE_FIELD, PrevRegsProto, ACCESS_NOFLAGS, None, (), None, {}),
-    (IS_INSTANCE_FIELD, LocalsField[2:], ACCESS_NOFLAGS, None, (), None, {}),
+    (IS_INSTANCE_FIELD, ScopeProto, ACCESS_PUBLIC, None, (('Ldalvik/annotation/Signature;', ((28, 'value', ((23, '"Ljava/util/Map"'), (23, '"<"'), (23, '"Ljava/lang/Integer;"'), (23, '"["'), (23, '"Lpbi/executor/types/Base;"'), (23, '">;"'))),), 'system'),), None, {}),
      clinit_method,
      init_method,
      caller_method,
@@ -1224,8 +1290,8 @@ def class_hook(args, id2names):
 def python2java(code):
   jClassName = "pbi.eval.Main"
   ClassName = DVM_name(jClassName)
-  jWrapName = "pbi.eval.Func%s"
 
+  jWrapName = "pbi.eval.Func%s"
   def id2name(id):
     return DVM_name(jWrapName % id)
 
@@ -1235,6 +1301,8 @@ def python2java(code):
 
   functions = []
   classes = []
+  scopeds = set() # для пометок тех функций, переменных которых присутствуют в scope-связках (серьёзная оптимизация на деле для функций, id которых сюда не попадут)
+  wrap_gen_tasks = []
 
   for id, state in enumerate(defs):
     (rln_count, names), args, codes, labels, tries, local_consts = state
@@ -1253,9 +1321,9 @@ def python2java(code):
 
     analysis = {}
     if id:
-      name = "func_%s(%s)%s" % (id, BaseArrType, BaseType)
-      classes.append(method_wrapper(id2name, id, ClassName, "%s->%s" % (ClassName, name), state))
-      inputs = 2
+      name = "func_%s(%sLjava/util/Map;)%s" % (id, BaseArrType, BaseType)
+      wrap_gen_tasks.append((id2name, id, ClassName, "%s->%s" % (ClassName, name), state, scopeds))
+      inputs = 3
     else:
       name = "module()" + BaseType
       global_regs = rln_count
@@ -1268,10 +1336,14 @@ def python2java(code):
 
     functions.append((
       IS_VIRTUAL_METHOD, name, ACCESS_NOFLAGS, None, (annot,),
-      builder(ClassName, id, inputs, id2name, names, codes, tries, local_consts, analysis),
+      builder(ClassName, id, inputs, id2name, scopeds, names, codes, tries, local_consts, analysis),
       {}
     ))
 
+  for args in wrap_gen_tasks:
+    classes.append(method_wrapper(*args))
+
+  print("SCOPEDS:", scopeds)
   print("~" * 53)
 
   clinit_codes = [

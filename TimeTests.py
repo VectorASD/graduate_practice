@@ -1,11 +1,3 @@
-if True: # __name__ == "__main__":
-  from executor import main, load_codes # пока нереализован доступный всем способ компиляции БЕЗ доступа к компилятору (облачные технологии)
-  load_codes("Mazers.py")
-  main("time-tests", False, ("/sdcard/my_code3.asd", "/sdcard/my_debug3.asd"))
-  exit()
-
-###~~~### time-tests
-
 def time_test():
   def report():
     clear()

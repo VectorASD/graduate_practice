@@ -9,6 +9,7 @@ if True: # __name__ == "__main__":
 import python2java # python2java
 
 module = python2java(__code("polygon.py"))
+# module = python2java(__code("../TimeTests.py"))
 
 print("~" * 53)
 

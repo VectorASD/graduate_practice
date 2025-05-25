@@ -71,7 +71,6 @@ for i in range(3):
     except KeyError: print("outer")
     if i == 2: raise KeyError
   except KeyError: print("inner")
-"""
 
 dict1 = {}
 dict2 = {1: "a"}
@@ -92,6 +91,7 @@ for item in (-1, 0, 1, None, True, False, b"", b"123"):
   print("    %r:" % item, item and "yes" or "no")
 
 for a, b in ((1, 2), (3, 4)): print(a, b)
+"""
 
 
 
@@ -126,6 +126,31 @@ with_defaults(8, 5, 3, 2)
 with_defaults(8, 5, 3, 2, 1)
 try: with_defaults(8, 5, 3, 2, 1, 1)
 except TypeError as e: print(e)
+
+
+
+def scope_check(): # попадает под scope из-за изъятия CBs во внутренних функциях
+  CBs = []
+  def new_cb_factory(): # попадает под scope из-за изъятия counter во внутренних функциях
+    counter = -1
+    def new_cb():
+      def cb():
+        nonlocal counter
+        counter += 1
+        return counter
+      CBs.append(cb)
+    return new_cb
+  for i in (3, 5, 2):
+    new_cb = new_cb_factory()
+    for _ in range(i): new_cb()
+  print(CBs) # Все 10 функций называются одинаково: "<wrapper def#7>". Может показаться, если не видеть код, что каждая функция делает одно и тоже самое
+  chain = tuple(cb() for cb in CBs)
+  print(chain) # (0, 1, 2, 0, 1, 2, 3, 4, 0, 1) На практике здесь работают локальные замыкания new_cb_factory, которые, в свою очередь, базируются на scope-системе
+
+print()
+scope_check()
+
+
 
 class Simple(object):
   static = 25
