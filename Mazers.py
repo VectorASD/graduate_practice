@@ -115,24 +115,43 @@ class myRenderer:
 
     # все негенерированные (из ресурсника) текстуры в одном месте
 
+    textures = __resource("textures.png")
     skybox_labeled = __resource("skybox_labeled.png")
+
+    self.mainTexture = mainTextures = newTexture2(textures)
     skyboxLabeled = newTexture2(skybox_labeled)
 
     # все шейдерные программы в одном месте
 
+    self.program = firstProgram = FirstProgram(self)
+    self.gridProgram = gridProgram = d2textureProgram(mainTextures, (8, 64), self)
     self.skyboxes = (
       skyBoxLoader(d2textureProgram(skyboxLabeled, (1, 6), self), (0, 1, 2, 3, 4, 5)),
       None,
     )
+    self.colorama = Colorama(self)
 
     # настройка шейдерных программ
+
+    gridProgram.setUp(0.25)
+    gridProgram.add(160, 0.25, 5.5,  8, 1)
+    gridProgram.add(142, 0.25, 6.75, 8, 2)
+    gridProgram.add(45,  6.75, 6.75, 8, 3)
 
     self.skyboxN       = 0
     self.currentSkybox = self.skyboxes[self.skyboxN]
 
     # загрузка моделей
 
-    self.models = ()
+    triangles, cube, sphere = figures(firstProgram)
+    fboTex = lambda: self.FBO[1]
+    self.models = (
+      NoCullFaceModel(triangles),
+      TexturedModel(TranslateModel(ScaleModel(cube, (0.5, 1, 0.5)), (2.5, 0, 0)), fboTex),
+      TexturedModel(TranslateModel(ScaleModel(cube.clone(), (1, 1, 0.5)), (0.5, 0, 0)), lambda: dbgTextures[0]),
+      TexturedModel(TranslateModel(ScaleModel(cube.clone(), (1, 1, 0.5)), (-2, 0, 0)), lambda: dbgTextures[1]),
+      TexturedModel(TranslateModel(sphere, (0, 3, 0)), fboTex),
+    )
 
     # первый сигнал перерасчёта матриц модели во всей иерархии моделей
 
@@ -184,15 +203,23 @@ class myRenderer:
     # glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glClear(GL_DEPTH_BUFFER_BIT)
 
+    # Skybox
     skybox = self.currentSkybox
     if skybox is not None: skybox.draw()
+
+    # Стартовые модельки
+    program = self.program
+    enableProgram(program.program)
+    for model in self.models: model.draw()
+
+    # GUI
+    self.gridProgram.draw(self.WH_ratio, self.eventN)
 
   def drawColorDimension(self):
     glClearColor(0, 0, 0, 1)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-    if not self.CW_mode:
-      self.colorama.draw(self.SolarSystem)
+    # self.colorama.draw(self.SolarSystem)
 
   def readPixel(self, x, y):
     buffer = MyBuffer.allocateDirect(4)
@@ -202,6 +229,7 @@ class myRenderer:
     buffer._m_get(arr)
     return bytes(arr)
 
+  # Основная отрисовочная петля
   def onDrawFrame(self, gl10):
     if not self.ready2: return
 
@@ -213,15 +241,16 @@ class myRenderer:
     #print("📽️ onDraw", gl)
 
     self.fps()
+    self.eventHandler()
 
     if self.updMVP: self.calcMVPmatrix()
+
+    glEnable(GL_CULL_FACE)
+    glEnable(GL_DEPTH_TEST)
 
     if self.skyboxN == 1:
       self.drawColorDimension()
     else: self.drawScene()
-
-    glEnable(GL_CULL_FACE)
-    glEnable(GL_DEPTH_TEST)
 
 
 
@@ -230,6 +259,35 @@ class myRenderer:
     self.yaw -= dx * 0.5
     self.pitch = max(-90, min(self.pitch - dy * 0.5, 90))
     self.calcViewMatrix()
+
+  def event(self, up, down, misc):
+    self.eventN = up | down << 1 | misc << 2
+
+  def getTByPosition(self, x, y):
+    if not self.ready2: return -1
+    return self.gridProgram.checkPosition(x / self.W, y / self.H)
+
+  def click(self, x, y, click_td):
+    if not self.ready2: return
+    if click_td > 0.5: return
+    t = self.getTByPosition(x, y)
+    if t == -1:
+      self.clickHandlerQueue.append((x, y))
+    elif t == 3:
+      self.skyboxN = N = (self.skyboxN + 1) % len(self.skyboxes)
+      self.currentSkybox = self.skyboxes[N]
+    # print("🐾 click:", x, y, t)
+
+  def eventHandler(self):
+    td, event = self.td, self.eventN
+    if event in (1, 2):
+      if event == 2: td = -td
+      x, y, z = self.forward
+
+      td *= 10
+      self.moveCam(x * td, y * td, z * td)
+
+
 
   def setCamPos(self, x, y, z):
     self.camX = x
@@ -243,16 +301,6 @@ class myRenderer:
     self.camZ += dz
     self.camera = self.camX, self.camY, self.camZ
     self.calcViewMatrix()
-
-
-
-  def event(self, up, down, misc):
-    self.eventN = up | down << 1 | misc << 2
-
-  def getTByPosition(self, x, y):
-    if not self.ready2: return -1
-    return -1
-    # return self.gridProgram.checkPosition(x / self.W, y / self.H)
 
   reverse = {
     "cr": onSurfaceCreated,
