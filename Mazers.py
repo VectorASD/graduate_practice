@@ -34,6 +34,78 @@ import myGLtext
 
 
 
+class Chunk:
+  def __init__(self, renderer, data):
+    self.renderer = renderer
+    self.build()
+  def build(self):
+    def click_provider(data):
+      def click():
+        print(data)
+      return click
+    next_color = self.renderer.colorama.next
+
+    faces = []
+    extend = faces.extend
+
+    x, y, z = 0, 0, 0
+    id = 8
+
+    x2 = x + 1
+    y2 = y + 1
+    z2 = z + 1
+
+    v, u = divmod(15 - id, 4)
+    u1 = 0.75 - u / 4
+    u2 = u1 + 0.25
+    v1 = v / 4
+    v2 = v1 + 0.25
+
+    # мой extend теперь позволяет передавать несколько элементов без tuple!
+    for face in range(6):
+      color = next_color(click_provider(face))
+      match face:
+        case 0: # top    / верх   (+Y)
+          a = (x,  y2, z,  u1, v1, *color)
+          b = (x2, y2, z,  u2, v1, *color)
+          c = (x,  y2, z2, u1, v2, *color)
+          d = (x2, y2, z2, u2, v2, *color)
+          extend((b, a, c), (b, c, d))
+        case 1: # south  / юг     (+Z)
+          a = (x,  y2, z2, u1, v1, *color)
+          b = (x2, y2, z2, u2, v1, *color)
+          c = (x,  y,  z2, u1, v2, *color)
+          d = (x2, y,  z2, u2, v2, *color)
+          extend((b, a, c), (b, c, d))
+        case 2: # west   / запад  (-X)
+          a = (x, y2, z,  u1, v1, *color)
+          b = (x, y2, z2, u2, v1, *color)
+          c = (x, y,  z,  u1, v2, *color)
+          d = (x, y,  z2, u2, v2, *color)
+          extend((b, a, c), (b, c, d))
+        case 3: # north  / север  (-Z)
+          a = (x2, y2, z, u1, v1, *color)
+          b = (x,  y2, z, u2, v1, *color)
+          c = (x2, y,  z, u1, v2, *color)
+          d = (x,  y,  z, u2, v2, *color)
+          extend((b, a, c), (b, c, d))
+        case 4: # east   / восток (+X)
+          a = (x2, y2, z2, u1, v1, *color)
+          b = (x2, y2, z,  u2, v1, *color)
+          c = (x2, y,  z2, u1, v2, *color)
+          d = (x2, y,  z,  u2, v2, *color)
+          extend((b, a, c), (b, c, d))
+        case 5: # bottom / дно    (-Y)
+          a = (x,  y, z2, u1, v1, *color)
+          b = (x2, y, z2, u2, v1, *color)
+          c = (x,  y, z,  u1, v2, *color)
+          d = (x2, y, z,  u2, v2, *color)
+          extend((b, a, c), (b, c, d))
+    VBOdata, IBOdata = buildModel(faces)
+    self.model = Model(VBOdata, IBOdata, self.renderer.colorama)
+
+
+
 class myRenderer:
   glVersion = 2
 
@@ -42,9 +114,9 @@ class myRenderer:
     self.view      = view
 
     # Camera
-    self.yaw, self.pitch, self.roll = 180, 0, 0
-    self.camX, self.camY, self.camZ = 0, 0, -3.5
-    self.camera = 0, 0, -3.5
+    self.yaw, self.pitch, self.roll = 0, -45, 0
+    self.camX, self.camY, self.camZ = 0, 3.5, 3.5
+    self.camera = 0, 3.5, 3.5
     self.CW_mode = False
 
     # FPS
@@ -171,19 +243,26 @@ class myRenderer:
 
     triangles, cube, sphere = figures(firstProgram)
     fboTex = lambda: self.FBO[1]
-    self.models = (
-      NoCullFaceModel(triangles),
-      TexturedModel(TranslateModel(ScaleModel(cube, (0.5, 1, 0.5)), (2.5, 0, 0)), fboTex),
+    self.Models = UnionModel((
+      TranslateModel(NoCullFaceModel(triangles), (0, 0, -7.5)),
+      TexturedModel(TranslateModel(ScaleModel(cube, (0.5, 1, 0.5)), (2.5, 0, -7.5)), fboTex),
       *(
-      	  TexturedModel(TranslateModel(ScaleModel(cube.clone(), (1, 1, 0.5)), (0.5 - 2.5 * i, 0, 0)), dbg)
+      	  TexturedModel(TranslateModel(ScaleModel(cube.clone(), (1, 1, 0.5)), (0.5 - 2.5 * i, 0, -7.5)), dbg)
       	  for i, dbg in enumerate(dbgTextures)
       ),
-      TexturedModel(TranslateModel(sphere, (0, 3, 0)), fboTex),
-    )
+      TexturedModel(TranslateModel(sphere, (0, 3, -7.5)), fboTex),
+    ))
+
+    data = (((0, 0, 0),),)
+    chunk = Chunk(self, data)
+    model = chunk.model
+    self.Chunks = UnionModel((model,))
 
     # первый сигнал перерасчёта матриц модели во всей иерархии моделей
 
     self.calcViewMatrix()
+
+    self.Chunks.recalc(identity_mat)
 
     self.ready = True
 
@@ -194,7 +273,7 @@ class myRenderer:
     multiplyMM(self.VPmatrix,  0, self.projectionM, 0, self.viewNotTranslatedM, 0)
     self.updMVP = False
 
-    for model in self.models: model.recalc(MVPmatrix)
+    self.Models.recalc(MVPmatrix)
 
   def calcViewMatrix(self):
     q = Quaternion.fromYPR(self.yaw, self.pitch, self.roll)
@@ -240,6 +319,10 @@ class myRenderer:
     # glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
     glClear(GL_DEPTH_BUFFER_BIT)
 
+    glEnable(GL_CULL_FACE)
+    glEnable(GL_DEPTH_TEST)
+    glEnable(GL_BLEND)
+
     # Skybox
     skybox = self.currentSkybox
     if skybox is not None: skybox.draw()
@@ -247,7 +330,12 @@ class myRenderer:
     # Стартовые модельки
     program = self.program
     enableProgram(program.program)
-    for model in self.models: model.draw()
+    self.Models.draw()
+
+    # Модели
+    self.colorama.mode(False)
+    glBindTexture(GL_TEXTURE_2D, self.atlas)
+    self.colorama.draw(self.Chunks)
 
     # GUI
     self.gridProgram.draw(self.WH_ratio, self.eventN)
@@ -257,7 +345,13 @@ class myRenderer:
     glClearColor(0, 0, 0, 1)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-    # self.colorama.draw(self.SolarSystem)
+    glDisable(GL_CULL_FACE)
+    glEnable(GL_DEPTH_TEST)
+    glDisable(GL_BLEND)
+
+    # Модели
+    self.colorama.mode(True)
+    self.colorama.draw(self.Chunks)
 
     # GUI
     self.gridProgram.draw(self.WH_ratio, self.eventN)
@@ -286,9 +380,6 @@ class myRenderer:
     self.eventHandler()
 
     if self.updMVP: self.calcMVPmatrix()
-
-    glEnable(GL_CULL_FACE)
-    glEnable(GL_DEPTH_TEST)
 
     glBindFramebuffer(GL_FRAMEBUFFER, self.FBO[0])
     queue = self.clickHandlerQueue

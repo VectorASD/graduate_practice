@@ -1653,7 +1653,6 @@ void main() {
   def mode(self, colorama):
     state = self.state2 if colorama else self.state
     self.program, self.func, self.uVPMatrix, self.location = state
-    (glDisable if colorama else glEnable)(GL_BLEND)
 
   def draw(self, model):
     renderer = self.renderer
