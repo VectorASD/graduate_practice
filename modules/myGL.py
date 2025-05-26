@@ -381,6 +381,10 @@ def newTexture2(data):
   bitmap = decodeByteArray(data, 0, len(data), bitmapFactoryOptions)
   return _newTexture(bitmap, GL_LINEAR)
 
+def newTexture3(data):
+  bitmap = decodeByteArray(data, 0, len(data), bitmapFactoryOptions)
+  return _newTexture(bitmap, GL_NEAREST)
+
 def removeTexture(textureId):
   print2("♻️ DEL texture:", textureId)
   ids = INT.new_array(1)

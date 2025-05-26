@@ -61,7 +61,6 @@ class myRenderer:
     self.ready2 = False
 
     # Click system
-    self.colorDimension = False
     self.clickHandlerQueue = []
 
     # Timers
@@ -122,6 +121,23 @@ class myRenderer:
     self.mainTexture = mainTextures = newTexture2(textures)
     skyboxLabeled = newTexture2(skybox_labeled)
 
+    # __resource - bult-in функция моего компилятора. Она не может поддерживать переменные, только строки
+    tiles = (
+      __resource("tiles/tile_0.png"),
+      __resource("tiles/tile_1.png"),
+      __resource("tiles/tile_2.png"),
+      __resource("tiles/tile_3.png"),
+      __resource("tiles/tile_4.png"),
+      __resource("tiles/tile_5.png"),
+      __resource("tiles/tile_6.png"),
+      __resource("tiles/tile_7.png"),
+      __resource("tiles/tile_8.png"),
+      __resource("tiles/tile_9.png"),
+      __resource("tiles/tile_10.png"),
+      __resource("tiles/tile_11.png"),
+    )
+    tiles = tuple(map(newTexture3, tiles))
+
     # все шейдерные программы в одном месте
 
     self.program = firstProgram = FirstProgram(self)
@@ -133,6 +149,13 @@ class myRenderer:
     self.glyphs = glyphTextureGenerator(self)
     self.colorama = Colorama(self)
     self.textureChain = TextureChain(self)
+
+    combine = TextureChain(self)
+    for i, tile in enumerate(tiles):
+      y, x = divmod(i, 4)
+      combine.add_texture(tile, x, y, 4)
+    self.atlas = texture = combine.draw_to_texture(64, 64, 1, GL_NEAREST)
+    dbgTextures = (texture, tiles[0])
 
     # настройка шейдерных программ
 
@@ -151,8 +174,10 @@ class myRenderer:
     self.models = (
       NoCullFaceModel(triangles),
       TexturedModel(TranslateModel(ScaleModel(cube, (0.5, 1, 0.5)), (2.5, 0, 0)), fboTex),
-      TexturedModel(TranslateModel(ScaleModel(cube.clone(), (1, 1, 0.5)), (0.5, 0, 0)), lambda: dbgTextures[0]),
-      TexturedModel(TranslateModel(ScaleModel(cube.clone(), (1, 1, 0.5)), (-2, 0, 0)), lambda: dbgTextures[1]),
+      *(
+      	  TexturedModel(TranslateModel(ScaleModel(cube.clone(), (1, 1, 0.5)), (0.5 - 2.5 * i, 0, 0)), dbg)
+      	  for i, dbg in enumerate(dbgTextures)
+      ),
       TexturedModel(TranslateModel(sphere, (0, 3, 0)), fboTex),
     )
 
@@ -234,6 +259,10 @@ class myRenderer:
 
     # self.colorama.draw(self.SolarSystem)
 
+    # GUI
+    self.gridProgram.draw(self.WH_ratio, self.eventN)
+    self.glyphs.draw(self.WH_ratio)
+
   def readPixel(self, x, y):
     buffer = MyBuffer.allocateDirect(4)
     buffer._m_order(MyBuffer.nativeOrder)
@@ -282,16 +311,18 @@ class myRenderer:
     if cbs:
       for cb in cbs: cb()
 
-    self.textureChain.postprocessing()
+    self.textureChain.postprocessing(self.FBO[1])
     #print("🫢", glGetError())
 
 
 
   def move(self, dx, dy):
-    if not self.ready2: return
-    self.yaw -= dx * 0.5
-    self.pitch = max(-90, min(self.pitch - dy * 0.5, 90))
-    self.calcViewMatrix()
+    def wrap():
+      if not self.ready2: return
+      self.yaw -= dx * 0.5
+      self.pitch = max(-90, min(self.pitch - dy * 0.5, 90))
+      self.calcViewMatrix()
+    runOnGLThread(self.view, wrap)
 
   def event(self, up, down, misc):
     self.eventN = up | down << 1 | misc << 2

@@ -1474,7 +1474,7 @@ public class Main {
 
     Wrapper module = new Wrapper(this, 0);
 
-    globals = module.reg_locs().regs;
+    globals = module.reg_locs()._regs;
     for (int[] pair : builtins) {
       int k = pair[0], v = pair[1];
       if (builtins_arr.length <= k) {

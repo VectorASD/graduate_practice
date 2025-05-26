@@ -16,13 +16,17 @@ public class RegLocs {
   public Object[] state;
   public Base[] prev_regs;
 
+  public Base[] _regs;
   public Base[] regs;
   public Map<Integer, Base[]> scope;
 
+  public Integer _id;
+
   public RegLocs(Main env, int id, Base[] prev_regs, Map<Integer, Base[]> prev_scope) {
-    this.env = env;
-    this.id = id;
-    state = (Object[]) env.defs[id];
+    this.env       = env;
+    this.id        = id;
+    _id            = Integer.valueOf(id);
+    state          = (Object[]) env.defs[id];
     this.prev_regs = prev_regs;
 
     common(prev_scope);
@@ -31,6 +35,7 @@ public class RegLocs {
   public RegLocs(RegLocs src) { // copy
     env       = src.env;
     id        = src.id;
+    _id       = Integer.valueOf(id);
     state     = src.state;
     prev_regs = src.prev_regs;
 
@@ -39,15 +44,13 @@ public class RegLocs {
 
   @SuppressWarnings("unchecked")
   void common(Map<Integer, Base[]> prev_scope) {
-    int rln_count = (int) state[0];
+    rln_count = (int) state[0];
     Object[] args = (Object[]) state[2];
     int[][] const_arr = (int[][]) state[10];
 
 
 
-    regs = new Base[rln_count];
     scope = new HashMap<Integer, Base[]>(prev_scope);
-    scope.put(id, regs);
 
     //Arrays.fill(regs, Main.Void);
     //Arrays.fill(locs, Main.Void);
@@ -56,20 +59,22 @@ public class RegLocs {
 
 
 
-    loc_args_0 = (int[]) args[0];
-    loc_args_1 = (int[]) args[1];
-    star  = (int) args[2]; // -1 <-> None
-    dstar = (int) args[3]; // -1 <-> None
+    loc_args_0      = (int[]) args[0];
+    loc_args_1      = (int[]) args[1];
+    star            = (int) args[2]; // -1 <-> None
+    dstar           = (int) args[3]; // -1 <-> None
     without_default = (int) args[4];
-    arg_links = (Map<String, Integer>) args[5]; // причина применения @SuppressWarnings("unchecked")
+    arg_links       = (Map<String, Integer>) args[5]; // причина применения @SuppressWarnings("unchecked")
 
 
 
+    Base[] regs = new Base[rln_count];
     Base[] consts = env.consts();
+
     for (int[] pair : const_arr)
       regs[pair[0]] = consts[pair[1]];
 
-    regs_count = regs.length - const_arr.length;
+    _regs = regs;
   }
 
   int[] loc_args_0;
@@ -79,13 +84,18 @@ public class RegLocs {
   int without_default;
   Map<String, Integer> arg_links;
 
-  int regs_count;
-  boolean used;
+  int rln_count;
 
   void argumentor(Base[] a_args, Map<String, Base> kw_args) throws RuntimeError {
-    if (used)
-      Arrays.fill(regs, 0, regs_count, null);
-    else used = true;
+    int i = rln_count;
+    Base[] regs;
+    if (id != 0) {
+      regs = new Base[i];
+      System.arraycopy(_regs, 0, regs, 0, i);
+    } else regs = _regs; // из-за globals
+
+    scope.put(_id, regs);
+    this.regs = regs;
 
     int recv_args = a_args.length;
 
@@ -94,8 +104,13 @@ public class RegLocs {
       throw new TypeError("#" + id + "() missing " + missing + " required positional argument" + (missing != 1 ? "s" : ""));
     }
 
+    int[] loc_args_0 = this.loc_args_0;
+    int[] loc_args_1 = this.loc_args_1;
+    Base[] prev_regs = this.prev_regs;
+
+    i = 0;
     int args_count = loc_args_0.length;
-    int i = 0;
+
     if (star == -1) {
       if (recv_args > args_count)
         throw new TypeError("#" + id + "() takes " + args_count + " positional arguments but " + recv_args + " were given");
