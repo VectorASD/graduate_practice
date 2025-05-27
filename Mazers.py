@@ -190,8 +190,10 @@ class Chunk:
   def remove(self):
     model = self.model
     if model: model.delete(False)
-    self.level.renderer.colorama.clear(self.colors)
-    self.colors.clear()
+    colors = self.colors
+    if colors:
+      self.level.renderer.colorama.clear(colors)
+      colors.clear()
 
   def delete(self):
     self.remove()
@@ -200,13 +202,34 @@ class Chunk:
     if not level.chunks:
       level.default()
 
+  def pack(self, file):
+    file.pickle(self.my_pos)
+    write = file.write
+    for mat in self.data:
+      for row in mat:
+        write(bytes(row))
+
+  def unpack(self, file):
+    self.my_pos = my_pos = file.unpickle()
+    read = file.read
+    for mat in self.data:
+      for row in mat:
+        row[:] = read(ChunkSX)
+    self.dirty = True
+
 
 
 class Level:
-  def __init__(self):
+  def __init__(self, path):
     self.chunks = {}
     self.mat = None
     self.renderer = None
+
+    self.path = path
+    self.save_time = None
+
+    try: self.load()
+    except OSError: self.default()
 
   def setblock(self, x, y, z, id):
     chunk_x, x = divmod(x, ChunkSX)
@@ -219,6 +242,7 @@ class Level:
       mat = self.mat
       if mat: chunk.recalc(mat)
     chunk.setblock(x, y, z, id)
+    self.save_time = time() + 3
 
   def getblock(self, x, y, z):
     chunk_x, x = divmod(x, ChunkSX)
@@ -237,6 +261,11 @@ class Level:
       chunk.recalc(mat) 
 
   def draw(self):
+    save_time = self.save_time
+    if save_time and save_time <= time():
+      self.save_time = None
+      self.save()
+
     for chunk in self.chunks.values():
       chunk.draw()
 
@@ -249,10 +278,32 @@ class Level:
       for x in range(3):
         self.setblock(x, 0, z, 8 if x == 1 and z == 1 else 1)
 
+  # пока временная мера просто всё подряд без структурирования поместить в файл
+
+  def pack(self, file):
+    for chunk in self.chunks.values():
+      chunk.pack(file)
+
+  def unpack(self, file):
+    chunks = self.chunks
+    for chunk in chunks.values(): chunk.delete()
+    while not file.eof():
+      chunk = Chunk(self, None)
+      chunk.unpack(file)
+      print("LOADED:", chunk.my_pos)
+      chunks[chunk.my_pos] = chunk
+
+  def save(self):
+    with open(self.path, "wb") as file:
+      self.pack(file)
+
+  def load(self):
+    with open(self.path, "rb") as file:
+      self.unpack(file)
 
 
-level = Level()
-level.default()
+
+level = Level("/sdcard/TEST.chunk")
 
 
 
@@ -311,8 +362,10 @@ class myRenderer:
         arr[pos] = fd
         self.frame_pos = (pos + 1) % 10
       self.fpsS = S = sum(arr) * 10 // len(arr)
-      if self.CW_mode: text = "fps: %s\ncam: %.2f %.2f %.2f\nrot: %.2f %.2f %.2f" % (S, self.camX, self.camY, self.camZ, self.yaw, self.pitch, self.roll)
-      else: text = "fps: %s\nchunks: %s" % (S, len(level.chunks))
+      if self.CW_mode:
+        text = "fps: %s\ncam: %.2f %.2f %.2f\nrot: %.2f %.2f %.2f" % (S, self.camX, self.camY, self.camZ, self.yaw, self.pitch, self.roll)
+      else:
+        text = "fps: %s\nchunks: %s%s" % (S, len(level.chunks), "\nsaved" if level.save_time is None else "")
       self.glyphs.setText(self.fpsText, text, self.W / 16)
     return self.fpsS
 
