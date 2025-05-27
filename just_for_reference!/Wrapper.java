@@ -30,30 +30,8 @@ public class Wrapper extends Base {
   }
 
   @Override public Base __call__(Base[] a_args, Map<String, Base> kw_args) throws RuntimeError {
-    if (used) // рекурсия
-      return new Wrapper(env, reg_locs).__call__(a_args, kw_args);
-    used = true;
     reg_locs.argumentor(a_args, kw_args);
     Base res = env.method(reg_locs);
-    used = false;
-    return res;
-  }
-  @Override public Base __call__(Base... a_args) throws RuntimeError {
-    if (used) // рекурсия
-      return new Wrapper(env, reg_locs).__call__(a_args);
-    used = true;
-    reg_locs.argumentor(a_args, void_map);
-    Base res = env.method(reg_locs);
-    used = false;
-    return res;
-  }
-  public Base call() throws RuntimeError {
-    if (used) // рекурсия
-      return new Wrapper(env, reg_locs).call();
-    used = true;
-    reg_locs.argumentor(void_regs, void_map);
-    Base res = env.method(reg_locs);
-    used = false;
     return res;
   }
 
