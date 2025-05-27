@@ -312,7 +312,7 @@ class myRenderer:
         self.frame_pos = (pos + 1) % 10
       self.fpsS = S = sum(arr) * 10 // len(arr)
       if self.CW_mode: text = "fps: %s\ncam: %.2f %.2f %.2f\nrot: %.2f %.2f %.2f" % (S, self.camX, self.camY, self.camZ, self.yaw, self.pitch, self.roll)
-      else: text = "fps: %s chunks: %s" % (S, len(level.chunks))
+      else: text = "fps: %s\nchunks: %s" % (S, len(level.chunks))
       self.glyphs.setText(self.fpsText, text, self.W / 16)
     return self.fpsS
 

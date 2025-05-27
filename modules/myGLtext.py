@@ -238,6 +238,7 @@ def glyphRenderer(W, H, font, ab):
   rect = jRect()
   boxes = []
   for letter in ab:
+    # print(repr(letter))
     p.getTextBounds(letter, 0, 1, rect)
     box = rect._f_left, rect._f_right, rect._f_top, rect._f_bottom
     w, h = box[1] - box[0], box[3] - box[2]
