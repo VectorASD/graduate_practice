@@ -964,7 +964,7 @@ def skyBoxLoader(gridProgram, indexes, flipY = False, dbg = False):
     # Текстуры Skybox-сторон капризничают -> им нужны сразу обе инверсии текстурных координат
     # Но это неактуально для +Y и -Y
     invert = flipY or n not in (2, 3) # +Y, -Y
-    model = gridProgram.createModel(id, 0, 0, 1, 0, invert, invert)
+    model = gridProgram.createModel(id, 0, 0, 1, invert, invert)
     gridProgram.draw(1, ((model, None),))
     model.delete()
     buffer = MyBuffer.allocateDirect(W * H * 4)

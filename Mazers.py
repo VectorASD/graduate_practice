@@ -315,7 +315,7 @@ class myRenderer:
     self.view      = view
 
     # Camera
-    self.yaw, self.pitch, self.roll = 0, -45, 0
+    self.yaw, self.pitch, self.roll = 0, -45.01, 0
     self.camX, self.camY, self.camZ = 0, 3.5, 3.5
     self.camera = 0, 3.5, 3.5
     self.CW_mode = False
@@ -394,11 +394,15 @@ class myRenderer:
 
     # все негенерированные (из ресурсника) текстуры в одном месте
 
-    textures = __resource("textures.png")
+    textures       = __resource("textures.png")
     skybox_labeled = __resource("skybox_labeled.png")
+    skybox_space   = __resource("skybox_space.webp")
 
-    self.mainTexture = mainTextures = newTexture2(textures)
+    mainTextures  = newTexture2(textures)
     skyboxLabeled = newTexture2(skybox_labeled)
+    skyboxSpace   = newTexture2(skybox_space)
+
+    # self.mainTexture = mainTextures
 
     # __resource - bult-in функция моего компилятора. Она не может поддерживать переменные, только строки
     tiles = (
@@ -422,8 +426,11 @@ class myRenderer:
     self.program = firstProgram = FirstProgram(self)
     self.gridProgram = gridProgram = d2textureProgram(mainTextures, (8, 64), self)
     self.skyboxes = (
+      skyBoxLoader(d2textureProgram(skyboxSpace, (4, 3), self), (6, 4, 3, 11, 7, 5), True),
       skyBoxLoader(d2textureProgram(skyboxLabeled, (1, 6), self), (0, 1, 2, 3, 4, 5)),
-      None,
+      skyBoxLoader(gridProgram, (4, 50, 384, 65, 78, 401)),
+      None, # без сброса фона
+      None, # Колорама
     )
     self.glyphs = glyphTextureGenerator(self)
     self.colorama = Colorama(self)
@@ -611,7 +618,7 @@ class myRenderer:
         if cb is not None: cbs.append(cb)
       self.clickHandlerQueue.clear()
 
-    if self.skyboxN == 1:
+    if self.skyboxN == 4:
       self.drawColorDimension(True)
     else: self.drawScene()
 
