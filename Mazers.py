@@ -34,75 +34,213 @@ import myGLtext
 
 
 
+face2delta = (
+  ( 0, +1,  0), # top    / верх   (+Y)
+  ( 0,  0, +1), # south  / юг     (+Z)
+  (-1,  0,  0), # west   / запад  (-X)
+  ( 0,  0, -1), # north  / север  (-Z)
+  (+1,  0,  0), # east   / восток (+X)
+  ( 0, -1,  0), # bottom / дно    (-Y)
+)
+
+def ClickProvider(data):
+  def click():
+    x, y, z, face = data
+    # print(x, y, z, face)
+    dx, dy, dz = face2delta[face]
+    level.setblock(x + dx, y + dy, z + dz, 1)
+  return click
+
+
+
+ChunkSX = ChunkSY = ChunkSZ = 8
+
 class Chunk:
-  def __init__(self, renderer, data):
-    self.renderer = renderer
-    self.build()
+  def __init__(self, level, my_pos):
+    self.level = level
+    self.data = tuple(tuple(
+    	 [0] * ChunkSX
+      for y in range(ChunkSY))
+      for z in range(ChunkSZ))
+    self.model = None
+    self.dirty = False
+    self.mat = None
+    self.my_pos = my_pos
+    self.colors = []
+
   def build(self):
-    def click_provider(data):
-      def click():
-        print(data)
-      return click
-    next_color = self.renderer.colorama.next
+    renderer = self.level.renderer
+    next_color = renderer.colorama.next
+
+    def add_block(x, y, z, id, faces):
+      x2 = x + 1
+      y2 = y + 1
+      z2 = z + 1
+
+      v, u = divmod(15 - id, 4)
+      u1 = 0.75 - u / 4
+      u2 = u1 + 0.25
+      v1 = v / 4
+      v2 = v1 + 0.25
+
+      # мой extend теперь позволяет передавать несколько элементов без tuple!
+      for face in faces:
+        color = next_color(ClickProvider((x, y, z, face)))
+        match face:
+          case 0: # top    / верх   (+Y)
+            a = (x,  y2, z,  u1, v1, *color)
+            b = (x2, y2, z,  u2, v1, *color)
+            c = (x,  y2, z2, u1, v2, *color)
+            d = (x2, y2, z2, u2, v2, *color)
+            extend((b, a, c), (b, c, d))
+          case 1: # south  / юг     (+Z)
+            a = (x,  y2, z2, u1, v1, *color)
+            b = (x2, y2, z2, u2, v1, *color)
+            c = (x,  y,  z2, u1, v2, *color)
+            d = (x2, y,  z2, u2, v2, *color)
+            extend((b, a, c), (b, c, d))
+          case 2: # west   / запад  (-X)
+            a = (x, y2, z,  u1, v1, *color)
+            b = (x, y2, z2, u2, v1, *color)
+            c = (x, y,  z,  u1, v2, *color)
+            d = (x, y,  z2, u2, v2, *color)
+            extend((b, a, c), (b, c, d))
+          case 3: # north  / север  (-Z)
+            a = (x2, y2, z, u1, v1, *color)
+            b = (x,  y2, z, u2, v1, *color)
+            c = (x2, y,  z, u1, v2, *color)
+            d = (x,  y,  z, u2, v2, *color)
+            extend((b, a, c), (b, c, d))
+          case 4: # east   / восток (+X)
+            a = (x2, y2, z2, u1, v1, *color)
+            b = (x2, y2, z,  u2, v1, *color)
+            c = (x2, y,  z2, u1, v2, *color)
+            d = (x2, y,  z,  u2, v2, *color)
+            extend((b, a, c), (b, c, d))
+          case 5: # bottom / дно    (-Y)
+            a = (x,  y, z2, u1, v1, *color)
+            b = (x2, y, z2, u2, v1, *color)
+            c = (x,  y, z,  u1, v2, *color)
+            d = (x2, y, z,  u2, v2, *color)
+            extend((b, a, c), (b, c, d))
+        add_color(color)
+
+    self.remove()
 
     faces = []
     extend = faces.extend
+    add_color = self.colors.append
 
-    x, y, z = 0, 0, 0
-    id = 8
+    my_x, my_y, my_z = self.my_pos
+    my_x *= ChunkSX
+    my_y *= ChunkSY
+    my_z *= ChunkSZ
 
-    x2 = x + 1
-    y2 = y + 1
-    z2 = z + 1
+    for y, mat in enumerate(self.data, my_y):
+      for z, row in enumerate(mat, my_z):
+        for x, id in enumerate(row, my_x):
+          if id:
+            add_block(x, y, z, id, range(6))
 
-    v, u = divmod(15 - id, 4)
-    u1 = 0.75 - u / 4
-    u2 = u1 + 0.25
-    v1 = v / 4
-    v2 = v1 + 0.25
+    if not faces:
+      self.model = None
+      return # Чисто-воздушный чанк...
 
-    # мой extend теперь позволяет передавать несколько элементов без tuple!
-    for face in range(6):
-      color = next_color(click_provider(face))
-      match face:
-        case 0: # top    / верх   (+Y)
-          a = (x,  y2, z,  u1, v1, *color)
-          b = (x2, y2, z,  u2, v1, *color)
-          c = (x,  y2, z2, u1, v2, *color)
-          d = (x2, y2, z2, u2, v2, *color)
-          extend((b, a, c), (b, c, d))
-        case 1: # south  / юг     (+Z)
-          a = (x,  y2, z2, u1, v1, *color)
-          b = (x2, y2, z2, u2, v1, *color)
-          c = (x,  y,  z2, u1, v2, *color)
-          d = (x2, y,  z2, u2, v2, *color)
-          extend((b, a, c), (b, c, d))
-        case 2: # west   / запад  (-X)
-          a = (x, y2, z,  u1, v1, *color)
-          b = (x, y2, z2, u2, v1, *color)
-          c = (x, y,  z,  u1, v2, *color)
-          d = (x, y,  z2, u2, v2, *color)
-          extend((b, a, c), (b, c, d))
-        case 3: # north  / север  (-Z)
-          a = (x2, y2, z, u1, v1, *color)
-          b = (x,  y2, z, u2, v1, *color)
-          c = (x2, y,  z, u1, v2, *color)
-          d = (x,  y,  z, u2, v2, *color)
-          extend((b, a, c), (b, c, d))
-        case 4: # east   / восток (+X)
-          a = (x2, y2, z2, u1, v1, *color)
-          b = (x2, y2, z,  u2, v1, *color)
-          c = (x2, y,  z2, u1, v2, *color)
-          d = (x2, y,  z,  u2, v2, *color)
-          extend((b, a, c), (b, c, d))
-        case 5: # bottom / дно    (-Y)
-          a = (x,  y, z2, u1, v1, *color)
-          b = (x2, y, z2, u2, v1, *color)
-          c = (x,  y, z,  u1, v2, *color)
-          d = (x2, y, z,  u2, v2, *color)
-          extend((b, a, c), (b, c, d))
     VBOdata, IBOdata = buildModel(faces)
-    self.model = Model(VBOdata, IBOdata, self.renderer.colorama)
+    self.model = Model(VBOdata, IBOdata, renderer.colorama, False)
+
+    mat = self.mat
+    if mat: self.model.recalc(mat)
+
+
+
+  def setblock(self, x, y, z, id):
+    self.data[y][z][x] = id
+    self.dirty = True
+
+  def getblock(self, x, y, z):
+    return self.data[y][z][x]
+
+
+
+  def recalc(self, mat):
+    model = self.model
+    if model: model.recalc(mat)
+    self.mat = mat
+
+  def draw(self):
+    if self.dirty:
+      self.build()
+      self.dirty = False
+    model = self.model
+    if model: model.draw()
+    else: self.delete()
+
+  def restart(self):
+    self.dirty = self.model is not None
+    self.model = None
+    self.colors.clear()
+
+  def remove(self):
+    model = self.model
+    if model: model.delete(False)
+    self.level.renderer.colorama.clear(self.colors)
+    self.colors.clear()
+
+  def delete(self):
+    self.remove()
+    self.level.chunks.pop(self.my_pos)
+
+
+
+class Level:
+  def __init__(self):
+    self.chunks = {}
+    self.mat = None
+    self.renderer = None
+
+  def setblock(self, x, y, z, id):
+    chunk_x, x = divmod(x, ChunkSX)
+    chunk_y, y = divmod(y, ChunkSY)
+    chunk_z, z = divmod(z, ChunkSZ)
+    chunk_pos = chunk_x, chunk_y, chunk_z
+    try: chunk = self.chunks[chunk_pos]
+    except KeyError:
+      chunk = self.chunks[chunk_pos] = Chunk(self, chunk_pos)
+      mat = self.mat
+      if mat: chunk.recalc(mat)
+    chunk.setblock(x, y, z, id)
+
+  def getblock(self, x, y, z):
+    chunk_x, x = divmod(x, ChunkSX)
+    chunk_y, y = divmod(y, ChunkSY)
+    chunk_z, z = divmod(z, ChunkSZ)
+    chunk_pos = chunk_x, chunk_y, chunk_z
+    try: chunk = self.chunks[chunk_pos]
+    except KeyError: return 0 # воздух
+    return chunk.getblock(x, y, z)
+
+
+
+  def recalc(self, mat):
+    self.mat = mat
+    for chunk in self.chunks.values():
+      chunk.recalc(mat) 
+
+  def draw(self):
+    for chunk in self.chunks.values():
+      chunk.draw()
+
+  def restart(self):
+    for chunk in self.chunks.values():
+      chunk.restart()
+
+
+
+level = Level()
+for z in range(2):
+  for x in range(3):
+    level.setblock(x, 0, z, 8 if x == 1 and z == 1 else 1)
 
 
 
@@ -118,6 +256,7 @@ class myRenderer:
     self.camX, self.camY, self.camZ = 0, 3.5, 3.5
     self.camera = 0, 3.5, 3.5
     self.CW_mode = False
+    self.skyboxN = 0
 
     # FPS
     self.frames    = self.last_frames = 0
@@ -236,7 +375,6 @@ class myRenderer:
     gridProgram.add(142, 0.25, 6.75, 8, 2)
     gridProgram.add(45,  6.75, 6.75, 8, 3)
 
-    self.skyboxN       = 0
     self.currentSkybox = self.skyboxes[self.skyboxN]
 
     # загрузка моделей
@@ -253,16 +391,12 @@ class myRenderer:
       TexturedModel(TranslateModel(sphere, (0, 3, -7.5)), fboTex),
     ))
 
-    data = (((0, 0, 0),),)
-    chunk = Chunk(self, data)
-    model = chunk.model
-    self.Chunks = UnionModel((model,))
-
     # первый сигнал перерасчёта матриц модели во всей иерархии моделей
 
     self.calcViewMatrix()
 
-    self.Chunks.recalc(identity_mat)
+    level.renderer = self
+    level.recalc(identity_mat)
 
     self.ready = True
 
@@ -335,7 +469,7 @@ class myRenderer:
     # Модели
     self.colorama.mode(False)
     glBindTexture(GL_TEXTURE_2D, self.atlas)
-    self.colorama.draw(self.Chunks)
+    self.colorama.draw(level)
 
     # GUI
     self.gridProgram.draw(self.WH_ratio, self.eventN)
@@ -351,7 +485,7 @@ class myRenderer:
 
     # Модели
     self.colorama.mode(True)
-    self.colorama.draw(self.Chunks)
+    self.colorama.draw(level)
 
     # GUI
     self.gridProgram.draw(self.WH_ratio, self.eventN)
@@ -389,7 +523,7 @@ class myRenderer:
       for x, y in queue:
         rgba = self.readPixel(x, self.H - y)
         cb = self.colorama.to_n(rgba)
-        print("👆 click CB:", cb)
+        # print("👆 click CB:", cb)
         if cb is not None: cbs.append(cb)
       self.clickHandlerQueue.clear()
 
@@ -464,6 +598,7 @@ class myRenderer:
     self.FBO = None
     SkyBox.restart()
     self.findNearestPlanet = lambda: None
+    level.restart()
 
   reverse = {
     "cr": onSurfaceCreated,

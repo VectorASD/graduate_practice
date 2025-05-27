@@ -1582,6 +1582,11 @@ class Colorama:
     r, g, b, a = rgba
     color = r / 255, g / 255, b / 255
     return self.reverse.get(color, None)
+  def clear(self, colors):
+    reverse_pop = self.reverse.pop
+    old_len = len(self.reverse)
+    for color in colors: reverse_pop(color)
+    # print("CLEAR:", old_len, "->", len(self.reverse))
 
   def genProgram(self):
     program = _, attribs, uniforms = checkProgram(newProgram("""
