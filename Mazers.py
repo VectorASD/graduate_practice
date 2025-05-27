@@ -42,13 +42,19 @@ face2delta = (
   (+1,  0,  0), # east   / восток (+X)
   ( 0, -1,  0), # bottom / дно    (-Y)
 )
+ids_for_build = 0, 1, 2, 3, 4, 5, 6, 10, 11
 
 def ClickProvider(data):
   def click():
-    x, y, z, face = data
+    renderer, x, y, z, face = data
     # print(x, y, z, face)
     dx, dy, dz = face2delta[face]
-    level.setblock(x + dx, y + dy, z + dz, 1)
+    id = renderer.selected_tile
+    if id:
+      x += dx
+      y += dy
+      z += dz
+    level.setblock(x, y, z, id)
   return click
 
 
@@ -85,7 +91,7 @@ class Chunk:
 
       # мой extend теперь позволяет передавать несколько элементов без tuple!
       for face in faces:
-        color = next_color(ClickProvider((x, y, z, face)))
+        color = next_color(ClickProvider((renderer, x, y, z, face)))
         match face:
           case 0: # top    / верх   (+Y)
             a = (x,  y2, z,  u1, v1, *color)
@@ -189,7 +195,10 @@ class Chunk:
 
   def delete(self):
     self.remove()
-    self.level.chunks.pop(self.my_pos)
+    level = self.level
+    level.chunks.pop(self.my_pos)
+    if not level.chunks:
+      level.default()
 
 
 
@@ -235,12 +244,15 @@ class Level:
     for chunk in self.chunks.values():
       chunk.restart()
 
+  def default(self):
+    for z in range(2):
+      for x in range(3):
+        self.setblock(x, 0, z, 8 if x == 1 and z == 1 else 1)
+
 
 
 level = Level()
-for z in range(2):
-  for x in range(3):
-    level.setblock(x, 0, z, 8 if x == 1 and z == 1 else 1)
+level.default()
 
 
 
@@ -275,13 +287,16 @@ class myRenderer:
     self.clickHandlerQueue = []
 
     # Timers
-    self.eventN = 0
+    self.eventN = set()
     self.time, self.td = time(), 0
     self.moveTd = 0
     self.moveTd2 = 0
 
     # Hooks
     self.camMoveEvent = lambda: None
+
+    # Editor
+    self.selected_tile = 1
 
   def fps(self):
     T = time()
@@ -297,7 +312,7 @@ class myRenderer:
         self.frame_pos = (pos + 1) % 10
       self.fpsS = S = sum(arr) * 10 // len(arr)
       if self.CW_mode: text = "fps: %s\ncam: %.2f %.2f %.2f\nrot: %.2f %.2f %.2f" % (S, self.camX, self.camY, self.camZ, self.yaw, self.pitch, self.roll)
-      else: text = "fps: %s" % S
+      else: text = "fps: %s chunks: %s" % (S, len(level.chunks))
       self.glyphs.setText(self.fpsText, text, self.W / 16)
     return self.fpsS
 
@@ -365,15 +380,28 @@ class myRenderer:
     for i, tile in enumerate(tiles):
       y, x = divmod(i, 4)
       combine.add_texture(tile, x, y, 4)
-    self.atlas = texture = combine.draw_to_texture(64, 64, 1, GL_NEAREST)
-    dbgTextures = (texture, tiles[0])
+    self.atlas = atlas = combine.draw_to_texture(64, 64, 1, GL_NEAREST)
+    dbgTextures = (atlas, tiles[0])
+
+    self.gridProgram2 = gridProgram2 = d2textureProgram(atlas, (4, 4), self)
 
     # настройка шейдерных программ
 
     gridProgram.setUp(0.25)
-    gridProgram.add(160, 0.25, 5.5,  8, 1)
-    gridProgram.add(142, 0.25, 6.75, 8, 2)
-    gridProgram.add(45,  6.75, 6.75, 8, 3)
+    gridProgram.add(160, 0.25, 5.5,  8, 1, lambda: 1 in self.eventN)
+    gridProgram.add(142, 0.25, 6.75, 8, 2, lambda: 2 in self.eventN)
+    gridProgram.add(45,  6.75, 6.75, 8, 3, lambda: 3 in self.eventN)
+
+    gridProgram2.setDirection(1)
+
+    for i, id in enumerate(ids_for_build):
+      y, x = divmod(i, 4)
+      v, u = divmod(id, 4)
+      # пока в моём python НЕ сохраняются состояния конкретно текущей итерации for для scope'ов
+      def add(id):
+        func = lambda: self.selected_tile != id
+        gridProgram2.add(15 - (v << 2 | (3 - u)), 5 + 1.25 * x, 0.25 + 1.25 * y, 10, i + 4, func)
+      add(id)
 
     self.currentSkybox = self.skyboxes[self.skyboxN]
 
@@ -472,10 +500,11 @@ class myRenderer:
     self.colorama.draw(level)
 
     # GUI
-    self.gridProgram.draw(self.WH_ratio, self.eventN)
+    self.gridProgram.draw(self.WH_ratio)
+    self.gridProgram2.draw(self.WH_ratio)
     self.glyphs.draw(self.WH_ratio)
 
-  def drawColorDimension(self):
+  def drawColorDimension(self, gui = False):
     glClearColor(0, 0, 0, 1)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
@@ -488,8 +517,10 @@ class myRenderer:
     self.colorama.draw(level)
 
     # GUI
-    self.gridProgram.draw(self.WH_ratio, self.eventN)
-    self.glyphs.draw(self.WH_ratio)
+    if gui:
+      self.gridProgram.draw(self.WH_ratio)
+      self.gridProgram2.draw(self.WH_ratio)
+      self.glyphs.draw(self.WH_ratio)
 
   def readPixel(self, x, y):
     buffer = MyBuffer.allocateDirect(4)
@@ -528,7 +559,7 @@ class myRenderer:
       self.clickHandlerQueue.clear()
 
     if self.skyboxN == 1:
-      self.drawColorDimension()
+      self.drawColorDimension(True)
     else: self.drawScene()
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0)
@@ -549,12 +580,18 @@ class myRenderer:
       self.calcViewMatrix()
     runOnGLThread(self.view, wrap)
 
-  def event(self, up, down, misc):
-    self.eventN = up | down << 1 | misc << 2
+  def event(self, t, active):
+    (self.eventN.add if active else self.eventN.remove)(t)
+  def clear_events(self):
+    self.eventN.clear()
 
   def getTByPosition(self, x, y):
     if not self.ready2: return -1
-    return self.gridProgram.checkPosition(x / self.W, y / self.H)
+    x /= self.W
+    y /= self.H
+    result = self.gridProgram.checkPosition(x, y)
+    if result != -1: return result
+    return self.gridProgram2.checkPosition(x, y)
 
   def click(self, x, y, click_td):
     if not self.ready2: return
@@ -565,12 +602,15 @@ class myRenderer:
     elif t == 3:
       self.skyboxN = N = (self.skyboxN + 1) % len(self.skyboxes)
       self.currentSkybox = self.skyboxes[N]
+    elif t in range(4, 13):
+      id = ids_for_build[t - 4]
+      self.selected_tile = id
     # print("🐾 click:", x, y, t)
 
   def eventHandler(self):
     td, event = self.td, self.eventN
-    if event in (1, 2):
-      if event == 2: td = -td
+    if 1 in event or 2 in event:
+      if 2 in event: td = -td
       x, y, z = self.forward
 
       td *= 10
@@ -663,9 +703,7 @@ class activityHandler:
     self.renderer = renderer
     self.prevXY = {}
     self.startXYT = {}
-    self.eventA = set()
-    self.eventB = set()
-    self.eventC = set()
+    self.events = {}
 
     return True # lock setContentView
 
@@ -695,10 +733,10 @@ class activityHandler:
       t = renderer.getTByPosition(x, y)
       if t > 0:
         prevXY[id] = None
-        if t == 1: self.eventA.add(id)
-        elif t == 2: self.eventB.add(id)
-        elif t == 3: self.eventC.add(id)
-        renderer.event(bool(self.eventA), bool(self.eventB), bool(self. eventC))
+        try: ev = self.events[t]
+        except KeyError: ev = self.events[t] = set()
+        ev.add(id)
+        renderer.event(t, True)
       else: prevXY[id] = x, y
       startXYT[id] = [x, y, T, True]
     elif action == ACTION_MOVE:
@@ -715,19 +753,16 @@ class activityHandler:
     elif action in ACTION_UP:
       x, y, id = getX(actionN), getY(actionN), getPointerId(actionN)
       prevXY[id] = 0, 0 # del prevXY[id] пока нет :/
-      self.eventA.remove(id)
-      self.eventB.remove(id)
-      self.eventC.remove(id)
-      renderer.event(bool(self.eventA), bool(self.eventB), bool(self.eventC))
+      for t, ev in self.events.items():
+        ev.remove(id)
+        if not ev: renderer.event(t, False)
 
       xx, yy, t, ok = startXYT[id]
       if ok and (xx - x) ** 2 + (yy - y) ** 2 < 100:
         renderer.click(xx, yy, T - t)
     elif action == ACTION_CANCEL:
-      self.eventA.clear()
-      self.eventB.clear()
-      self.eventC.clear()
-      renderer.event(False, False, False)
+      self.events.clear()
+      renderer.clear_events()
     return True
   def onKeyDown(self, num, e):
     print("onKeyDown", num, e)

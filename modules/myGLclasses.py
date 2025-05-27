@@ -644,7 +644,7 @@ class d2textureProgram():
     self.program = _, attribs, uniforms = checkProgram(newProgram("""
 attribute vec3 vPosition;
 attribute vec2 vUV;
-attribute float vType;
+// attribute float vType;
 attribute float vUp;
 
 uniform float uAspect;
@@ -653,7 +653,7 @@ uniform int uEvent;
 varying vec2 vaUV;
 varying float vaActive;
 
-bool getBit(int num, int b) {
+bool getBit_unused(int num, int b) {
   int bit = 0;
   int min = 128;
   for (int i = 7; i >= b; i--) {
@@ -673,9 +673,10 @@ void main() {
   vPosition.z, 1);
   vaUV = vUV;
 
-  int T = int(vType);
-  if (T < 1 || T > 3) vaActive = 1.;
-  else vaActive = getBit(uEvent, T - 1) ? 0.5 : 1.;
+  // int T = int(vType);
+  // if (T < 1 || T > 3) vaActive = 1.;
+  // else vaActive = getBit(uEvent, T - 1) ? 0.5 : 1.;
+  vaActive = uEvent == 1 ? 0.5 : 1.;
 }
 """, """
 precision mediump float;
@@ -690,16 +691,15 @@ void main() {
   vec4 clr = texture2D(uTexture, vaUV);
   gl_FragColor = vec4(clr.rgb * X, clr.a);
 }
-""", ('vPosition', 'vUV', 'vType', 'vUp'), ('uTexture', 'uAspect', 'uEvent')))
+""", ('vPosition', 'vUV', 'vUp'), ('uTexture', 'uAspect', 'uEvent')))
     vPosition = attribs["vPosition"]
     vUV       = attribs["vUV"]
-    vType     = attribs["vType"]
     vUp       = attribs["vUp"]
     def func():
-      glVertexAttribPointer(vPosition, 3, GL_FLOAT, False, 7 * 4, 0)
-      glVertexAttribPointer(vUV,       2, GL_FLOAT, False, 7 * 4, 3 * 4)
-      glVertexAttribPointer(vType,     1, GL_FLOAT, False, 7 * 4, 5 * 4)
-      glVertexAttribPointer(vUp,       1, GL_FLOAT, False, 7 * 4, 6 * 4)
+      glVertexAttribPointer(vPosition, 3, GL_FLOAT, False, 6 * 4, 0)
+      glVertexAttribPointer(vUV,       2, GL_FLOAT, False, 6 * 4, 3 * 4)
+      # glVertexAttribPointer(vType,     1, GL_FLOAT, False, 7 * 4, 5 * 4)
+      glVertexAttribPointer(vUp,       1, GL_FLOAT, False, 6 * 4, 5 * 4)
     self.func = func
     self.location = None
 
@@ -715,14 +715,14 @@ void main() {
     self.size        = W, H = size
     self.textureSize = tW, tH = texture2size[texture]
     self.tileSize    = (tW + W - 1) // W, (tH + H - 1) // H
-    self.printer = True
+    self.printer = False # Настройка печати здесь!
     self.up = 0
     self.dir = 0
 
   def setUp(self, up): self.up = up
   def setDirection(self, dir): self.dir = dir
 
-  def createModel(self, id, posX, posY, L = 10, t = 0, invertX = False, invertY = False, z = 0):
+  def createModel(self, id, posX, posY, L = 10, invertX = False, invertY = False, z = 0):
     if L > 0:
       L /= 2
       L1 = L - 1
@@ -740,44 +740,45 @@ void main() {
     if invertY: Ly, Ry = Ry, Ly
     dir = self.dir
     return Model((
-      pLx, pLy, z, Lx, Ly, t, dir,
-      pRx, pLy, z, Rx, Ly, t, dir,
-      pRx, pRy, z, Rx, Ry, t, dir,
-      pLx, pRy, z, Lx, Ry, t, dir,
+      pLx, pLy, z, Lx, Ly, dir,
+      pRx, pLy, z, Rx, Ly, dir,
+      pRx, pRy, z, Rx, Ry, dir,
+      pLx, pRy, z, Lx, Ry, dir,
     ), (
       0, 1, 2, 0, 2, 3,
     ), self, self.printer)
-  def replace(self, index, id, posX, posY, L = 10, t = 0, invertX = False, invertY = False, z = 0):
+  def replace(self, index, id, posX, posY, L = 10, t = 0, activation = None, invertX = False, invertY = False, z = 0):
     try: self.models[index].delete(self.printer)
     except KeyError: pass
-    model = self.createModel(id, posX, posY, L, t, invertX, invertY, z)
+    model = self.createModel(id, posX, posY, L, invertX, invertY, z)
     upXY = self.up
     if type(upXY) in (int, float): upX = upY = upXY
     else: upX, upY = upXY
-    self.models[index] = model
+    self.models[index] = model, activation
     if L > 0: self.modelPositions[index] = (posX - upX) / L, (posX + 1 + upX) / L, (posY - upY) / L, (posY + 1 + upY) / L, t, self.dir
-  def add(self, id, posX, posY, L = 10, t = 0, invertX = False, invertY = False, z = 0):
+  def add(self, id, posX, posY, L = 10, t = 0, activation = None, invertX = False, invertY = False, z = 0):
     index = self.model_n
     self.model_n = index + 1
-    self.replace(index, id, posX, posY, L, t, invertX, invertY, z)
+    self.replace(index, id, posX, posY, L, t, activation, invertX, invertY, z)
     return index
   def remove(self, id):
     self.models.pop(id)
     self.modelPositions.pop(id)
 
-  def draw(self, aspect, eventN, customModels = None, disableDepthTest = True):
+  def draw(self, aspect, customModels = None, disableDepthTest = True):
     self.aspect = aspect
 
     if disableDepthTest: glDisable(GL_DEPTH_TEST)
     glDisable(GL_CULL_FACE)
     enableProgram(self.program)
     glUniform1f(self.uAspect, aspect)
-    glUniform1i(self.uEvent, eventN)
     glUniform1i(self.uTexture, 0)
     glBindTexture(GL_TEXTURE_2D, self.texture)
 
     models = customModels if customModels is not None else self.models.values()
-    for model in models: model.draw()
+    for model, activation in models:
+      glUniform1i(self.uEvent, int(activation()) if activation else 0)
+      model.draw()
 
     if disableDepthTest: glEnable(GL_DEPTH_TEST)
     glEnable(GL_CULL_FACE)
@@ -964,7 +965,7 @@ def skyBoxLoader(gridProgram, indexes, flipY = False, dbg = False):
     # Но это неактуально для +Y и -Y
     invert = flipY or n not in (2, 3) # +Y, -Y
     model = gridProgram.createModel(id, 0, 0, 1, 0, invert, invert)
-    gridProgram.draw(1, 0, (model,))
+    gridProgram.draw(1, ((model, None),))
     model.delete()
     buffer = MyBuffer.allocateDirect(W * H * 4)
     buffer._m_order(MyBuffer.nativeOrder)
