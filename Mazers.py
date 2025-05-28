@@ -6,6 +6,7 @@ if True: # __name__ == "__main__":
 
 ###~~~### mazers
 
+
 """
 import python2java # python2java
 
@@ -22,7 +23,9 @@ print("~" * 53)
 res = module._m_module()
 print("~" * 53)
 print("• returned:", res)
+exit()
 """
+
 
 
 
@@ -62,6 +65,14 @@ def ClickProvider(data):
 ChunkSX = ChunkSY = ChunkSZ = 8
 
 class Chunk:
+  max_faces = ChunkSX * ChunkSY * (ChunkSZ + 1) + ChunkSX * (ChunkSY + 1) * ChunkSZ + (ChunkSX + 1) * ChunkSY * ChunkSZ
+  IBOdata = []
+  extend = IBOdata.extend
+  for i in range(0, max_faces * 4, 4):
+    extend(i + 1, i, i + 2, i + 1, i + 2, i + 3)
+  IBOdata = tuple(IBOdata)
+  # print(max_faces, len(IBOdata)) # 1728, 10368
+
   def __init__(self, level, my_pos):
     self.level = level
     self.data = tuple(tuple(
@@ -73,12 +84,21 @@ class Chunk:
     self.mat = None
     self.my_pos = my_pos
     self.colors = []
+    self.providers = {}
 
   def build(self):
     renderer = self.level.renderer
-    next_color = renderer.colorama.next
+    _next_color = renderer.colorama.next
+    _reverse    = renderer.colorama.reverse
 
-    def add_block(x, y, z, id, faces):
+    faces = []
+    _extend = faces.extend
+    _colors = self.colors
+    _pos = 0
+    _providers = self.providers
+
+    def add_block(x, y, z, id):
+      nonlocal _pos
       x2 = x + 1
       y2 = y + 1
       z2 = z + 1
@@ -89,71 +109,120 @@ class Chunk:
       v1 = v / 4
       v2 = v1 + 0.25
 
-      # мой extend теперь позволяет передавать несколько элементов без tuple!
-      for face in faces:
-        color = next_color(ClickProvider((renderer, x, y, z, face)))
-        match face:
-          case 0: # top    / верх   (+Y)
-            a = (x,  y2, z,  u1, v1, *color)
-            b = (x2, y2, z,  u2, v1, *color)
-            c = (x,  y2, z2, u1, v2, *color)
-            d = (x2, y2, z2, u2, v2, *color)
-            extend((b, a, c), (b, c, d))
-          case 1: # south  / юг     (+Z)
-            a = (x,  y2, z2, u1, v1, *color)
-            b = (x2, y2, z2, u2, v1, *color)
-            c = (x,  y,  z2, u1, v2, *color)
-            d = (x2, y,  z2, u2, v2, *color)
-            extend((b, a, c), (b, c, d))
-          case 2: # west   / запад  (-X)
-            a = (x, y2, z,  u1, v1, *color)
-            b = (x, y2, z2, u2, v1, *color)
-            c = (x, y,  z,  u1, v2, *color)
-            d = (x, y,  z2, u2, v2, *color)
-            extend((b, a, c), (b, c, d))
-          case 3: # north  / север  (-Z)
-            a = (x2, y2, z, u1, v1, *color)
-            b = (x,  y2, z, u2, v1, *color)
-            c = (x2, y,  z, u1, v2, *color)
-            d = (x,  y,  z, u2, v2, *color)
-            extend((b, a, c), (b, c, d))
-          case 4: # east   / восток (+X)
-            a = (x2, y2, z2, u1, v1, *color)
-            b = (x2, y2, z,  u2, v1, *color)
-            c = (x2, y,  z2, u1, v2, *color)
-            d = (x2, y,  z,  u2, v2, *color)
-            extend((b, a, c), (b, c, d))
-          case 5: # bottom / дно    (-Y)
-            a = (x,  y, z2, u1, v1, *color)
-            b = (x2, y, z2, u2, v1, *color)
-            c = (x,  y, z,  u1, v2, *color)
-            d = (x2, y, z,  u2, v2, *color)
-            extend((b, a, c), (b, c, d))
-        add_color(color)
+      # scope to regs
+      extend     = _extend
+      colors     = _colors
+      next_color = _next_color
+      reverse    = _reverse
+      pos        = _pos
+      providers  = _providers
+
+      # Мой extend теперь позволяет передавать несколько элементов без tuple!
+      # Добавил в свой компилятор __iget_or_default.
+      #   Он возвращает результат из первого аргумента, не приводя в действие второй.
+      #   Если произойдёт исключение IndexError, то в первый аргумент через append будет добавлено значение из второго аргумента.
+      #   Только в случае исключения срабатывает код из второго аргумента.
+      # __kget_or_default делается тоже самое, только вместо IndexError будет KeyError, а вместо append будет __setitem__
+
+      if True:
+        r, g, b = color = __iget_or_default(colors[pos], next_color())
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 0)], ClickProvider((renderer, x, y, z, 0)))
+        pos += 1
+        # top    / верх   (+Y)
+        extend(
+          x,  y2, z,  u1, v1, r, g, b,
+          x2, y2, z,  u2, v1, r, g, b,
+          x,  y2, z2, u1, v2, r, g, b,
+          x2, y2, z2, u2, v2, r, g, b,
+        )
+      if True:
+        r, g, b = color = __iget_or_default(colors[pos], next_color())
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 1)], ClickProvider((renderer, x, y, z, 1)))
+        pos += 1
+        # south  / юг     (+Z)
+        extend(
+          x,  y2, z2, u1, v1, r, g, b,
+          x2, y2, z2, u2, v1, r, g, b,
+          x,  y,  z2, u1, v2, r, g, b,
+          x2, y,  z2, u2, v2, r, g, b,
+        )
+      if True:
+        r, g, b = color = __iget_or_default(colors[pos], next_color())
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 2)], ClickProvider((renderer, x, y, z, 2)))
+        pos += 1
+        # west   / запад  (-X)
+        extend(
+          x, y2, z,  u1, v1, r, g, b,
+          x, y2, z2, u2, v1, r, g, b,
+          x, y,  z,  u1, v2, r, g, b,
+          x, y,  z2, u2, v2, r, g, b,
+        )
+      if True:
+        r, g, b = color = __iget_or_default(colors[pos], next_color())
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 3)], ClickProvider((renderer, x, y, z, 3)))
+        pos += 1
+        # north  / север  (-Z)
+        extend(
+          x2, y2, z, u1, v1, r, g, b,
+          x,  y2, z, u2, v1, r, g, b,
+          x2, y,  z, u1, v2, r, g, b,
+          x,  y,  z, u2, v2, r, g, b,
+        )
+      if True:
+        r, g, b = color = __iget_or_default(colors[pos], next_color())
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 4)], ClickProvider((renderer, x, y, z, 4)))
+        pos += 1
+        # east   / восток (+X)
+        extend(
+          x2, y2, z2, u1, v1, r, g, b,
+          x2, y2, z,  u2, v1, r, g, b,
+          x2, y,  z2, u1, v2, r, g, b,
+          x2, y,  z,  u2, v2, r, g, b,
+        )
+      if True:
+        r, g, b = color = __iget_or_default(colors[pos], next_color())
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 5)], ClickProvider((renderer, x, y, z, 5)))
+        pos += 1
+        # bottom / дно    (-Y)
+        extend(
+          x,  y, z2, u1, v1, r, g, b,
+          x2, y, z2, u2, v1, r, g, b,
+          x,  y, z,  u1, v2, r, g, b,
+          x2, y, z,  u2, v2, r, g, b,
+        )
+
+      _pos = pos
 
     self.remove()
-
-    faces = []
-    extend = faces.extend
-    add_color = self.colors.append
 
     my_x, my_y, my_z = self.my_pos
     my_x *= ChunkSX
     my_y *= ChunkSY
     my_z *= ChunkSZ
 
+    T = time()
     for y, mat in enumerate(self.data, my_y):
       for z, row in enumerate(mat, my_z):
         for x, id in enumerate(row, my_x):
           if id:
-            add_block(x, y, z, id, range(6))
+            add_block(x, y, z, id)
+    T2 = time()
 
     if not faces:
       self.model = None
       return # Чисто-воздушный чанк...
 
-    VBOdata, IBOdata = buildModel(faces)
+    # VBOdata, IBOdata = buildModel(faces)
+    VBOdata = faces
+    count = len(faces) // (4 * 8)
+    IBOdata = Chunk.IBOdata[:count * 6]
+
     self.model = Model(VBOdata, IBOdata, renderer.colorama, False)
+
+    T3 = time()
+    print("T:", T2 - T, T3 - T2, len(faces) // 8)
+    # было:  0.1137 + 0.3756 = 0.4893 сек. на 2760 крышек
+    # стало: 0.0797 + 0.0029 = 0.0826 сек. на 2760 крышек
 
     mat = self.mat
     if mat: self.model.recalc(mat)
@@ -286,7 +355,7 @@ class Level:
 
   def unpack(self, file):
     chunks = self.chunks
-    for chunk in chunks.values(): chunk.delete()
+    for chunk in tuple(chunks.values()): chunk.delete()
     while not file.eof():
       chunk = Chunk(self, None)
       chunk.unpack(file)

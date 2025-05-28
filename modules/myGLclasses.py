@@ -1570,14 +1570,13 @@ class Colorama:
       r, g, b = round(r * 255), round(g * 255), round(b * 255)
       print(n, "->", r, g, b, "->", r_n, g_n, b_n, "->", n2)
     exit()
-  def next(self, cb):
+  def next(self):
     self.n = n = self.n + 1
     color = (
       self.R[sum((n >> i * 3 & 1) << i for i in range(8))], # 0, 3, 6...
       self.G[sum((n >> i * 3 + 1 & 1) << i for i in range(8))], # 1, 4, 7...
       self.B[sum((n >> i * 3 + 2 & 1) << i for i in range(8))], # 2, 5, 8...
     )
-    self.reverse[color] = cb
     return color
   def to_n(self, rgba):
     r, g, b, a = rgba
