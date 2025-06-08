@@ -46,6 +46,20 @@ face2delta = (
   ( 0, -1,  0), # bottom / дно    (-Y)
 )
 ids_for_build = 0, 1, 2, 3, 4, 5, 6, 10, 11
+priorities = (
+  0, # (id:0) воздух
+  2, # (id:1) стена
+  2, # (id:2) дорожка
+  1, # (id:3) вход
+  1, # (id:4) выход
+  2, # (id:5) односторонник 1
+  2, # (id:6) односторонник 2
+  2, # (id:7) односторонник 3
+  2, # (id:8) туман
+  0, # (id:9) "что это?"
+  2, # (id:10) защищённая дорожка
+  2, # (id:11) телепортатор
+)
 
 def ClickProvider(data):
   def click():
@@ -57,7 +71,7 @@ def ClickProvider(data):
       x += dx
       y += dy
       z += dz
-    level.setblock(x, y, z, id)
+    level.setblock(x, y, z, id, True)
   return click
 
 
@@ -73,6 +87,21 @@ class Chunk:
   IBOdata = tuple(IBOdata)
   # print(max_faces, len(IBOdata)) # 1728, 10368
 
+  X_range = tuple(range(ChunkSX))
+  Y_range = tuple(range(ChunkSY))
+  Z_range = tuple(range(ChunkSZ))
+  pos_cube = tuple((x, y, z) for y in Y_range for z in Z_range for x in X_range)
+
+  id2uv = []
+  for id in range(16):
+    v, u = divmod(15 - id, 4)
+    u1 = 0.75 - u / 4
+    u2 = u1 + 0.25
+    v1 = v / 4
+    v2 = v1 + 0.25
+    id2uv.append((u1, u2, v1, v2))
+  id2uv = tuple(id2uv)
+
   def __init__(self, level, my_pos):
     self.level = level
     self.data = tuple(tuple(
@@ -87,35 +116,71 @@ class Chunk:
     self.providers = {}
 
   def build(self):
-    renderer = self.level.renderer
-    _next_color = renderer.colorama.next
-    _reverse    = renderer.colorama.reverse
+    self.remove()
+
+    """
+    0.0004 секунды на чанк 8x8x8
+    for y, mat in enumerate(self.data, my_y):
+      for z, row in enumerate(mat, my_z):
+        for x, id in enumerate(row, my_x):
+          if not id: continue
+
+    0.0002 секунды на чанк 8x8x8
+    data = self.data
+    for x, y, z in Chunk.pos_cube:
+      id = data[y][z][x]
+      if not id: continue
+    """
+
+    T = time()
 
     faces = []
-    _extend = faces.extend
-    _colors = self.colors
-    _pos = 0
-    _providers = self.providers
+    extend = faces.extend
 
-    def add_block(x, y, z, id):
-      nonlocal _pos
+    renderer = self.level.renderer
+    next_color = renderer.colorama.next
+    reverse    = renderer.colorama.reverse
+
+    colors = self.colors
+    pos = 0
+    providers = self.providers
+
+    id2uv = Chunk.id2uv
+    priors = priorities
+
+    get_chunk = self.level.getchunk
+    my_x, my_y, my_z = self.my_pos
+    top_chunk    = get_chunk(my_x, my_y + 1, my_z).data
+    south_chunk  = get_chunk(my_x, my_y, my_z + 1).data
+    west_chunk   = get_chunk(my_x - 1, my_y, my_z).data
+    north_chunk  = get_chunk(my_x, my_y, my_z - 1).data
+    east_chunk   = get_chunk(my_x + 1, my_y, my_z).data
+    bottom_chunk = get_chunk(my_x, my_y - 1, my_z).data
+    my_x *= ChunkSX
+    my_y *= ChunkSY
+    my_z *= ChunkSZ
+
+    ChunkSXm1 = ChunkSX - 1
+    ChunkSYm1 = ChunkSY - 1
+    ChunkSZm1 = ChunkSZ - 1
+
+    data = self.data
+    for _x, _y, _z in Chunk.pos_cube:
+      mat = data[_y]
+      row = mat[_z]
+      id = row[_x]
+      if not id: continue
+
+      x = _x + my_x
+      y = _y + my_y
+      z = _z + my_z
+
       x2 = x + 1
       y2 = y + 1
       z2 = z + 1
 
-      v, u = divmod(15 - id, 4)
-      u1 = 0.75 - u / 4
-      u2 = u1 + 0.25
-      v1 = v / 4
-      v2 = v1 + 0.25
-
-      # scope to regs
-      extend     = _extend
-      colors     = _colors
-      next_color = _next_color
-      reverse    = _reverse
-      pos        = _pos
-      providers  = _providers
+      u1, u2, v1, v2 = id2uv[id]
+      my_prior = priors[id]
 
       # Мой extend теперь позволяет передавать несколько элементов без tuple!
       # Добавил в свой компилятор __iget_or_default.
@@ -124,66 +189,66 @@ class Chunk:
       #   Только в случае исключения срабатывает код из второго аргумента.
       # __kget_or_default делается тоже самое, только вместо IndexError будет KeyError, а вместо append будет __setitem__
 
-      if True:
+      if my_prior > priors[data[_y + 1][_z][_x] if _y < ChunkSYm1 else top_chunk[0][_z][_x]]:
+        # top    / верх   (+Y)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
         reverse[color]  = __kget_or_default(providers[(x, y, z, 0)], ClickProvider((renderer, x, y, z, 0)))
         pos += 1
-        # top    / верх   (+Y)
         extend(
           x,  y2, z,  u1, v1, r, g, b,
           x2, y2, z,  u2, v1, r, g, b,
           x,  y2, z2, u1, v2, r, g, b,
           x2, y2, z2, u2, v2, r, g, b,
         )
-      if True:
+      if my_prior > priors[mat[_z + 1][_x] if _z < ChunkSZm1 else south_chunk[_y][0][_x]]:
+        # south  / юг     (+Z)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
         reverse[color]  = __kget_or_default(providers[(x, y, z, 1)], ClickProvider((renderer, x, y, z, 1)))
         pos += 1
-        # south  / юг     (+Z)
         extend(
           x,  y2, z2, u1, v1, r, g, b,
           x2, y2, z2, u2, v1, r, g, b,
           x,  y,  z2, u1, v2, r, g, b,
           x2, y,  z2, u2, v2, r, g, b,
         )
-      if True:
+      if my_prior > priors[row[_x - 1] if _x else west_chunk[_y][_z][ChunkSXm1]]:
+        # west   / запад  (-X)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
         reverse[color]  = __kget_or_default(providers[(x, y, z, 2)], ClickProvider((renderer, x, y, z, 2)))
         pos += 1
-        # west   / запад  (-X)
         extend(
           x, y2, z,  u1, v1, r, g, b,
           x, y2, z2, u2, v1, r, g, b,
           x, y,  z,  u1, v2, r, g, b,
           x, y,  z2, u2, v2, r, g, b,
         )
-      if True:
+      if my_prior > priors[mat[_z - 1][_x] if _z else north_chunk[_y][ChunkSZm1][_x]]:
+        # north  / север  (-Z)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
         reverse[color]  = __kget_or_default(providers[(x, y, z, 3)], ClickProvider((renderer, x, y, z, 3)))
         pos += 1
-        # north  / север  (-Z)
         extend(
           x2, y2, z, u1, v1, r, g, b,
           x,  y2, z, u2, v1, r, g, b,
           x2, y,  z, u1, v2, r, g, b,
           x,  y,  z, u2, v2, r, g, b,
         )
-      if True:
+      if my_prior > priors[row[_x + 1] if _x < ChunkSXm1 else east_chunk[_y][_z][0]]:
+        # east   / восток (+X)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
         reverse[color]  = __kget_or_default(providers[(x, y, z, 4)], ClickProvider((renderer, x, y, z, 4)))
         pos += 1
-        # east   / восток (+X)
         extend(
           x2, y2, z2, u1, v1, r, g, b,
           x2, y2, z,  u2, v1, r, g, b,
           x2, y,  z2, u1, v2, r, g, b,
           x2, y,  z,  u2, v2, r, g, b,
         )
-      if True:
+      if my_prior > priors[data[_y - 1][_z][_x] if _y else bottom_chunk[ChunkSYm1][_z][_x]]:
+        # bottom / дно    (-Y)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
         reverse[color]  = __kget_or_default(providers[(x, y, z, 5)], ClickProvider((renderer, x, y, z, 5)))
         pos += 1
-        # bottom / дно    (-Y)
         extend(
           x,  y, z2, u1, v1, r, g, b,
           x2, y, z2, u2, v1, r, g, b,
@@ -191,21 +256,6 @@ class Chunk:
           x2, y, z,  u2, v2, r, g, b,
         )
 
-      _pos = pos
-
-    self.remove()
-
-    my_x, my_y, my_z = self.my_pos
-    my_x *= ChunkSX
-    my_y *= ChunkSY
-    my_z *= ChunkSZ
-
-    T = time()
-    for y, mat in enumerate(self.data, my_y):
-      for z, row in enumerate(mat, my_z):
-        for x, id in enumerate(row, my_x):
-          if id:
-            add_block(x, y, z, id)
     T2 = time()
 
     if not faces:
@@ -220,18 +270,41 @@ class Chunk:
     self.model = Model(VBOdata, IBOdata, renderer.colorama, False)
 
     T3 = time()
-    print("T:", T2 - T, T3 - T2, len(faces) // 8)
-    # было:  0.1137 + 0.3756 = 0.4893 сек. на 2760 крышек
-    # стало: 0.0797 + 0.0029 = 0.0826 сек. на 2760 крышек
+    print(self.my_pos, "T:", T2 - T, T3 - T2, count, "крышек") # крышка - 2 полигона, выстроенных квадратом
+    # было:   0.1137 + 0.3756 = 0.4893 сек. на 1050 крышек
+    # стало:  0.0797 + 0.0029 = 0.0826 сек. на 1050 крышек
+    # стало2: 0.0237 + 0.0013 = 0.025  сек. на  253 крышек (та же конструкция)
+
+    # итог: 2 чанка в секунду поднято до РОВНО 40 чанков в секунду
+    # т.е. даже редактирование углового блока чанка, что приведёт к обновлению сразу 4-ёх чанков (больше 4-ёх за 1 блок невозможно), на это уйдёт, в среднем, всего 0.1 секунды!
 
     mat = self.mat
     if mat: self.model.recalc(mat)
 
 
 
-  def setblock(self, x, y, z, id):
+  def setblock(self, x, y, z, id, upd_nb = False):
     self.data[y][z][x] = id
     self.dirty = True
+
+    if upd_nb: # благо, сразу же, хоть и случайно, заметил, что удаление блоков дырявит соседние чанки, если их не обновить
+      get_chunk = self.level.getchunk
+      my_x, my_y, my_z = self.my_pos
+
+      if y == ChunkSY - 1:
+        get_chunk(my_x, my_y + 1, my_z).dirty = True
+      elif not y:
+        get_chunk(my_x, my_y - 1, my_z).dirty = True
+
+      if x == ChunkSX - 1:
+        get_chunk(my_x + 1, my_y, my_z).dirty = True
+      elif not x:
+        get_chunk(my_x - 1, my_y, my_z).dirty = True
+
+      if z == ChunkSZ - 1:
+        get_chunk(my_x, my_y, my_z + 1).dirty = True
+      elif not z:
+        get_chunk(my_x, my_y, my_z - 1).dirty = True
 
   def getblock(self, x, y, z):
     return self.data[y][z][x]
@@ -286,6 +359,8 @@ class Chunk:
         row[:] = read(ChunkSX)
     self.dirty = True
 
+AirChunk = Chunk(None, None)
+
 
 
 class Level:
@@ -300,7 +375,7 @@ class Level:
     try: self.load()
     except OSError: self.default()
 
-  def setblock(self, x, y, z, id):
+  def setblock(self, x, y, z, id, upd_nb = False):
     chunk_x, x = divmod(x, ChunkSX)
     chunk_y, y = divmod(y, ChunkSY)
     chunk_z, z = divmod(z, ChunkSZ)
@@ -310,7 +385,7 @@ class Level:
       chunk = self.chunks[chunk_pos] = Chunk(self, chunk_pos)
       mat = self.mat
       if mat: chunk.recalc(mat)
-    chunk.setblock(x, y, z, id)
+    chunk.setblock(x, y, z, id, upd_nb)
     self.save_time = time() + 3
 
   def getblock(self, x, y, z):
@@ -321,6 +396,11 @@ class Level:
     try: chunk = self.chunks[chunk_pos]
     except KeyError: return 0 # воздух
     return chunk.getblock(x, y, z)
+
+  def getchunk(self, chunk_x, chunk_y, chunk_z):
+    chunk_pos = chunk_x, chunk_y, chunk_z
+    try: return self.chunks[chunk_pos]
+    except KeyError: return AirChunk
 
 
 
@@ -637,7 +717,7 @@ class myRenderer:
     glClearColor(0, 0, 0, 1)
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-    glDisable(GL_CULL_FACE)
+    glEnable(GL_CULL_FACE)
     glEnable(GL_DEPTH_TEST)
     glDisable(GL_BLEND)
 
