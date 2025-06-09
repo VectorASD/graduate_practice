@@ -226,3 +226,11 @@ def shuffle(arr): # алгоритм Фишера-Йетса такой малю
 def rand_bits(count):
   count -= 1
   return tuple(map(bool, map(int, bin(randint(1 << count, (2 << count) - 1))[2:])))
+
+
+
+from java.util.Random import jRandom
+
+jRandom = jRandom()
+random_bool = jRandom._mw_nextBoolean()
+random_int = jRandom._mw_nextInt(int)

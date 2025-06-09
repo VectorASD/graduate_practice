@@ -455,15 +455,16 @@ class Level:
 
 def arrow(color1, color2):
   T = time()
-  n = 8
+  n = 64
   cycle = 2 * pi
   sequence = tuple(cycle * (i / n) if i < n else 0 for i in range(n + 1))
   sin_seq = tuple(map(sin, sequence))
   cos_seq = tuple(map(cos, sequence))
 
   n4 = n // 4
-  n3_8 = n * 3 // 8
+  n5_16 = n * 5 // 16
   n2 = n // 2
+  n_m1 = n - 1
 
   R = 0.05
   R2 = 0.025
@@ -481,53 +482,88 @@ def arrow(color1, color2):
   for i in range(n4 + 1):
     append((R + (1 - cos_seq[i]) * R2, z + sin_seq[i] * R2))
   z = circles[-1][1]
-  for i in range(n3_8 + 1):
+  for i in range(n5_16 + 1):
     append((R3 + sin_seq[i] * R4, z + (1 - cos_seq[i]) * R4))
   z = circles[-1][1]
-  z -= (1 - cos_seq[n3_8]) * R5
-  z += circles[-1][0] - sin_seq[n3_8] * R5
-  for i in range(n3_8, n2 + 1):
+  z -= (1 - cos_seq[n5_16]) * R5
+  z += (circles[-1][0] - sin_seq[n5_16] * R5) * 3
+  for i in range(n5_16, n2 + 1):
     append((sin_seq[i] * R5, z + (1 - cos_seq[i]) * R5))
 
   T2 = time()
 
   faces = []
+  IBOdata = []
   append = faces.append
-  extend = faces.extend
 
   color1 = tuple(i / 255 for i in color1)
   color2 = tuple(i / 255 for i in color2)
+  _rand = rand_bits(67)
+  _rand_n = 0
 
-  def lid(R, z, z2, swap): # крышка
-    a = (0, 0, z)
-    b = (sin_seq[0] * R, cos_seq[0] * R, z2)
-    for i in range(1, n + 1):
-      c = (sin_seq[i] * R, cos_seq[i] * R, z2)
-      append((b, a, c) if swap else (a, b, c))
-      b = c
-  def tube(R, z, R2, z2): # туба
-    a = (sin_seq[0] * R,  cos_seq[0] * R,  z)
-    c = (sin_seq[0] * R2, cos_seq[0] * R2, z2)
-    for i in range(1, n + 1):
-      b = (sin_seq[i] * R,  cos_seq[i] * R,  z)
-      d = (sin_seq[i] * R2, cos_seq[i] * R2, z2)
-      extend((b, a, c), (b, c, d))
-      a = b
-      c = d
+  def halo(R, z):
+    nonlocal _rand_n
+    dn = len(faces) // 9
+    extend = faces.extend
+    C1 = color1
+    C2 = color2
+    rand = _rand
+    rand_n = _rand_n
+    for i in range(n):
+      r, g, b = C1 if rand[rand_n] else C2
+      extend(sin_seq[i] * R, cos_seq[i] * R, z, r, g, b, 1, 1, 1)
+      rand_n = (rand_n + 1) % 67
+    _rand_n = rand_n
+    return dn
+
+  def lid(z, swap): # крышка
+    nonlocal _rand_n
+
+    dn = last_dn
+    dot = len(faces) // 9
+    r, g, b = color1 if _rand[_rand_n] else color2
+    faces.extend(0, 0, z, r, g, b, 1, 1, 1)
+    _rand_n = (_rand_n + 1) % 67
+
+    extend = IBOdata.extend
+    if swap:
+      for i in range(dn, dn + n_m1):
+        extend(i, dot, i + 1)
+      extend(dn + n_m1, dot, dn)
+    else:
+      for i in range(dn, dn + n_m1):
+        extend(dot, i, i + 1)
+      extend(dot, dn + n_m1, dn)
+
+  def tube(R, z): # туба
+    nonlocal last_dn
+    dn = last_dn
+    dn2 = last_dn = halo(R, z)
+
+    extend = IBOdata.extend
+    for i in range(n_m1):
+      a = dn + i
+      b = a + 1
+      c = dn2 + i
+      extend(b, a, c,   b, c, c + 1)
+    extend(dn, dn + n_m1, dn2 + n_m1,   dn, dn2 + n_m1, dn2)
 
   a = circles[0]
   b = circles[1]
-  lid(b[0], a[1], b[1], False)
+  last_dn = halo(*b)
+  lid(a[1], False)
   for i in range(2, len(circles) - 1):
-    a = b
     b = circles[i]
-    tube(*a, *b)
+    tube(*b)
   a = circles[-1]
-  lid(b[0], a[1], b[1], True)
+  lid(a[1], True)
 
   T3 = time()
-  VBOdata, IBOdata = buildModel(faces)
+  # VBOdata, IBOdata = buildModel(faces)
+  VBOdata = faces
+
   T4 = time()
+  """
   VBOdata2 = []
   extend = VBOdata2.extend
   rand = rand_bits(67)
@@ -535,17 +571,20 @@ def arrow(color1, color2):
     x, y, z = VBOdata[i : i+3]
     r, g, b = color1 if rand[i % 67] else color2
     extend(x, y, z, r, g, b, 1, 1, 1)
+  отправилось, как часть функции "halo"
+  """
   T5 = time()
-  print(T2 - T, T3 - T2)
-  print(T4 - T3, T5 - T4)
-  print(IBOdata)
-  return VBOdata2, IBOdata
+  print(round(T2 - T, 5), "+", round(T3 - T2, 5), "+", round(T4 - T3, 5), "+", round(T5 - T4, 5))
+  print(len(VBOdata) // 9, len(IBOdata) // 3) # количество вершин и полигонов
+  return VBOdata, IBOdata
 
 T = time()
 arrow_data = arrow((0, 0, 170), (85, 85, 255))
 print("•••", time() - T)
-
-
+# было:  0.00032 + 0.00725 + 0.28886 + 0.02229 = 0.31872 секунд (buildModel как всегда самый требовательный)
+# стало: 0.00042 + 0.01368 + 0.0     + 0.0     = 0.0141  секунд
+# 22.6x-кратный прирост!
+# Оба замера при n = 64, что соответствует 4226 вершинам и 8448 полигонам
 
 level = Level("/sdcard/TEST.chunk")
 
