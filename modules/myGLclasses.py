@@ -1556,9 +1556,13 @@ class Colorama:
     self.reverse = {}
     # self.test()
     self.renderer = renderer
+
     self.genProgram()
     self.genProgram2()
-    self.mode(False)
+    self.states = self.state, self.state2, self.state3, self.state4
+
+    self.mode(0)
+
   def test(self):
     self.n -= 1
     for i in range(16):
@@ -1653,10 +1657,20 @@ void main() {
       glVertexAttribPointer(vPosition, 3, GL_FLOAT, False, 8 * 4, 0)
       # glVertexAttribPointer(vUV, 2, GL_FLOAT, False, 8 * 4, 3 * 4)
       glVertexAttribPointer(vColor, 3, GL_FLOAT, False, 8 * 4, 5 * 4)
+    def func_alt():
+      glVertexAttribPointer(vPosition, 3, GL_FLOAT, False, 9 * 4, 0)
+      glVertexAttribPointer(vColor, 3, GL_FLOAT, False, 9 * 4, 3 * 4)
+      # glVertexAttribPointer(vColor, 3, GL_FLOAT, False, 9 * 4, 6 * 4)
+    def func_alt2():
+      glVertexAttribPointer(vPosition, 3, GL_FLOAT, False, 9 * 4, 0)
+      # glVertexAttribPointer(vColor, 3, GL_FLOAT, False, 9 * 4, 3 * 4)
+      glVertexAttribPointer(vColor, 3, GL_FLOAT, False, 9 * 4, 6 * 4)
     self.state2 = program, func, uniforms["uVPMatrix"], uniforms["uModelM"]
+    self.state3 = program, func_alt, uniforms["uVPMatrix"], uniforms["uModelM"]
+    self.state4 = program, func_alt2, uniforms["uVPMatrix"], uniforms["uModelM"]
 
-  def mode(self, colorama):
-    state = self.state2 if colorama else self.state
+  def mode(self, mode):
+    state = self.states[mode]
     self.program, self.func, self.uVPMatrix, self.location = state
 
   def draw(self, model):

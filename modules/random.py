@@ -222,3 +222,7 @@ def shuffle(arr): # алгоритм Фишера-Йетса такой малю
     i2 = randint(i + 1, L1)
     arr[i], arr[i2] = arr[i2], arr[i]
   return arr
+
+def rand_bits(count):
+  count -= 1
+  return tuple(map(bool, map(int, bin(randint(1 << count, (2 << count) - 1))[2:])))

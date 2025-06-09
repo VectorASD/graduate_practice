@@ -82,6 +82,7 @@ class Chunk:
   max_faces = ChunkSX * ChunkSY * (ChunkSZ + 1) + ChunkSX * (ChunkSY + 1) * ChunkSZ + (ChunkSX + 1) * ChunkSY * ChunkSZ
   IBOdata = []
   extend = IBOdata.extend
+  # max_faces -= 6 # подтвердилась правильность формулы на чанке с шахматной растановкой прозрачных и непрозрачных блоков (больше 1728 крышек на чанк быть не может)
   for i in range(0, max_faces * 4, 4):
     extend(i + 1, i, i + 2, i + 1, i + 2, i + 3)
   IBOdata = tuple(IBOdata)
@@ -452,6 +453,100 @@ class Level:
 
 
 
+def arrow(color1, color2):
+  T = time()
+  n = 8
+  cycle = 2 * pi
+  sequence = tuple(cycle * (i / n) if i < n else 0 for i in range(n + 1))
+  sin_seq = tuple(map(sin, sequence))
+  cos_seq = tuple(map(cos, sequence))
+
+  n4 = n // 4
+  n3_8 = n * 3 // 8
+  n2 = n // 2
+
+  R = 0.05
+  R2 = 0.025
+  R3 = 0.1
+  R4 = 0.025
+  R5 = 0.025
+
+  z = R
+  circles = [
+    (sin_seq[i] * R, z + (1 - cos_seq[i]) * R)
+    for i in range(n4 + 1)]
+  append = circles.append
+  z = circles[-1][1]
+  z += 0.6
+  for i in range(n4 + 1):
+    append((R + (1 - cos_seq[i]) * R2, z + sin_seq[i] * R2))
+  z = circles[-1][1]
+  for i in range(n3_8 + 1):
+    append((R3 + sin_seq[i] * R4, z + (1 - cos_seq[i]) * R4))
+  z = circles[-1][1]
+  z -= (1 - cos_seq[n3_8]) * R5
+  z += circles[-1][0] - sin_seq[n3_8] * R5
+  for i in range(n3_8, n2 + 1):
+    append((sin_seq[i] * R5, z + (1 - cos_seq[i]) * R5))
+
+  T2 = time()
+
+  faces = []
+  append = faces.append
+  extend = faces.extend
+
+  color1 = tuple(i / 255 for i in color1)
+  color2 = tuple(i / 255 for i in color2)
+
+  def lid(R, z, z2, swap): # крышка
+    a = (0, 0, z)
+    b = (sin_seq[0] * R, cos_seq[0] * R, z2)
+    for i in range(1, n + 1):
+      c = (sin_seq[i] * R, cos_seq[i] * R, z2)
+      append((b, a, c) if swap else (a, b, c))
+      b = c
+  def tube(R, z, R2, z2): # туба
+    a = (sin_seq[0] * R,  cos_seq[0] * R,  z)
+    c = (sin_seq[0] * R2, cos_seq[0] * R2, z2)
+    for i in range(1, n + 1):
+      b = (sin_seq[i] * R,  cos_seq[i] * R,  z)
+      d = (sin_seq[i] * R2, cos_seq[i] * R2, z2)
+      extend((b, a, c), (b, c, d))
+      a = b
+      c = d
+
+  a = circles[0]
+  b = circles[1]
+  lid(b[0], a[1], b[1], False)
+  for i in range(2, len(circles) - 1):
+    a = b
+    b = circles[i]
+    tube(*a, *b)
+  a = circles[-1]
+  lid(b[0], a[1], b[1], True)
+
+  T3 = time()
+  VBOdata, IBOdata = buildModel(faces)
+  T4 = time()
+  VBOdata2 = []
+  extend = VBOdata2.extend
+  rand = rand_bits(67)
+  for i in range(0, len(VBOdata), 3):
+    x, y, z = VBOdata[i : i+3]
+    r, g, b = color1 if rand[i % 67] else color2
+    extend(x, y, z, r, g, b, 1, 1, 1)
+  T5 = time()
+  print(T2 - T, T3 - T2)
+  print(T4 - T3, T5 - T4)
+  print(IBOdata)
+  return VBOdata2, IBOdata
+
+T = time()
+arrow_data = arrow((0, 0, 170), (85, 85, 255))
+print("•••", time() - T)
+
+
+
 level = Level("/sdcard/TEST.chunk")
 
 
@@ -628,12 +723,16 @@ class myRenderer:
       TexturedModel(TranslateModel(sphere, (0, 3, -7.5)), fboTex),
     ))
 
+    arrow = Model(*arrow_data, self.colorama)
+    self.arrow = TexturedModel(TranslateModel(arrow, (0, 3, -3.5)), atlas)
+
     # первый сигнал перерасчёта матриц модели во всей иерархии моделей
 
     self.calcViewMatrix()
 
     level.renderer = self
     level.recalc(identity_mat)
+    self.arrow.recalc(identity_mat)
 
     self.ready = True
 
@@ -704,9 +803,12 @@ class myRenderer:
     self.Models.draw()
 
     # Модели
-    self.colorama.mode(False)
+    self.colorama.mode(0)
     glBindTexture(GL_TEXTURE_2D, self.atlas)
     self.colorama.draw(level)
+
+    self.colorama.mode(2)
+    self.colorama.draw(self.arrow)
 
     # GUI
     self.gridProgram.draw(self.WH_ratio)
@@ -722,8 +824,11 @@ class myRenderer:
     glDisable(GL_BLEND)
 
     # Модели
-    self.colorama.mode(True)
+    self.colorama.mode(1)
     self.colorama.draw(level)
+
+    self.colorama.mode(3)
+    self.colorama.draw(self.arrow)
 
     # GUI
     if gui:
