@@ -119,7 +119,7 @@ class TranslateModel:
     except AttributeError: pass # если update2 вызван до recalc, то self.mat просто нет
 
   def clone(self):
-    return TranslateModel(self.model.clone(), self.model)
+    return TranslateModel(self.model.clone(), self.translate)
 
 
 
@@ -1581,6 +1581,10 @@ class Colorama:
       self.G[sum((n >> i * 3 + 1 & 1) << i for i in range(8))], # 1, 4, 7...
       self.B[sum((n >> i * 3 + 2 & 1) << i for i in range(8))], # 2, 5, 8...
     )
+    return color
+  def next_cb(self, cb):
+    color = self.next()
+    self.reverse[color] = cb
     return color
   def to_n(self, rgba):
     r, g, b, a = rgba

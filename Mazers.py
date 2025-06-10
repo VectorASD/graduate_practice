@@ -271,7 +271,7 @@ class Chunk:
     self.model = Model(VBOdata, IBOdata, renderer.colorama, False)
 
     T3 = time()
-    print(self.my_pos, "T:", T2 - T, T3 - T2, count, "крышек") # крышка - 2 полигона, выстроенных квадратом
+    print("C:", self.my_pos, "T:", T2 - T, T3 - T2, count, "крышек") # крышка - 2 полигона, выстроенных квадратом
     # было:   0.1137 + 0.3756 = 0.4893 сек. на 1050 крышек
     # стало:  0.0797 + 0.0029 = 0.0826 сек. на 1050 крышек
     # стало2: 0.0237 + 0.0013 = 0.025  сек. на  253 крышек (та же конструкция)
@@ -453,7 +453,7 @@ class Level:
 
 
 
-def arrow(color1, color2):
+def make_arrow(color1, color2, color3):
   T = time()
   n = 64
   cycle = 2 * pi
@@ -490,6 +490,8 @@ def arrow(color1, color2):
   for i in range(n5_16, n2 + 1):
     append((sin_seq[i] * R5, z + (1 - cos_seq[i]) * R5))
 
+  circles.extend((R, -z) for R, z in circles[::-1])
+
   T2 = time()
 
   faces = []
@@ -498,32 +500,31 @@ def arrow(color1, color2):
 
   color1 = tuple(i / 255 for i in color1)
   color2 = tuple(i / 255 for i in color2)
-  _rand = rand_bits(67)
-  _rand_n = 0
+  _rand = tuple(color1 if bit else color2 for bit in rand_bits(67)) * 100
+  _rand_i = iter(_rand)
 
   def halo(R, z):
-    nonlocal _rand_n
+    nonlocal _rand_i
     dn = len(faces) // 9
     extend = faces.extend
-    C1 = color1
-    C2 = color2
-    rand = _rand
-    rand_n = _rand_n
+    rand = _rand_i.__next__
+    cr, cb, cg = color3
     for i in range(n):
-      r, g, b = C1 if rand[rand_n] else C2
-      extend(sin_seq[i] * R, cos_seq[i] * R, z, r, g, b, 1, 1, 1)
-      rand_n = (rand_n + 1) % 67
-    _rand_n = rand_n
+      try: r, g, b = rand()
+      except StopIteration:
+        _rand_i = iter(_rand)
+        rand = _rand_i.__next__
+        r, g, b = rand()
+      extend(sin_seq[i] * R, cos_seq[i] * R, z, r, g, b, cr, cb, cg)
     return dn
 
   def lid(z, swap): # крышка
-    nonlocal _rand_n
-
     dn = last_dn
     dot = len(faces) // 9
-    r, g, b = color1 if _rand[_rand_n] else color2
-    faces.extend(0, 0, z, r, g, b, 1, 1, 1)
-    _rand_n = (_rand_n + 1) % 67
+
+    r, g, b = color1 if random_bool() else color2
+    cr, cb, cg = color3
+    faces.extend(0, 0, z, r, g, b, cr, cb, cg)
 
     extend = IBOdata.extend
     if swap:
@@ -573,18 +574,45 @@ def arrow(color1, color2):
     extend(x, y, z, r, g, b, 1, 1, 1)
   отправилось, как часть функции "halo"
   """
+
   T5 = time()
-  print(round(T2 - T, 5), "+", round(T3 - T2, 5), "+", round(T4 - T3, 5), "+", round(T5 - T4, 5))
-  print(len(VBOdata) // 9, len(IBOdata) // 3) # количество вершин и полигонов
+  # print(round(T2 - T, 5), "+", round(T3 - T2, 5), "+", round(T4 - T3, 5), "+", round(T5 - T4, 5))
+  # print(len(VBOdata) // 9, len(IBOdata) // 3) # количество вершин и полигонов
   return VBOdata, IBOdata
 
-T = time()
-arrow_data = arrow((0, 0, 170), (85, 85, 255))
-print("•••", time() - T)
-# было:  0.00032 + 0.00725 + 0.28886 + 0.02229 = 0.31872 секунд (buildModel как всегда самый требовательный)
-# стало: 0.00042 + 0.01368 + 0.0     + 0.0     = 0.0141  секунд
-# 22.6x-кратный прирост!
-# Оба замера при n = 64, что соответствует 4226 вершинам и 8448 полигонам
+def arrowed_star(renderer):
+  T = time()
+
+  def cb(delta_vec):
+    def handler(x, y):
+      pos = renderer.unproject(x, y)
+      renderer.marker.update2(pos)
+
+    return handler
+
+  colorama = renderer.colorama
+  arrow_data_X = make_arrow((170, 0, 0), (255, 85, 85), colorama.next_cb(lambda: cb((1, 0, 0))))
+  arrow_data_Y = make_arrow((0, 170, 0), (85, 255, 85), colorama.next_cb(lambda: cb((0, 1, 0))))
+  arrow_data_Z = make_arrow((0, 0, 170), (85, 85, 255), colorama.next_cb(lambda: cb((0, 0, 1))))
+  # print("•••", time() - T)
+  # было:  0.00032 + 0.00725 + 0.28886 + 0.02229 = 0.31872 секунд (buildModel как всегда самый требовательный)
+  # стало: 0.00042 + 0.01368 + 0.0     + 0.0     = 0.0141  секунд
+  # 22.6x-кратный прирост!
+  # Оба замера при n = 64, что соответствует 4226 вершинам и 8448 полигонам
+
+  arrow_X = Model(*arrow_data_X, colorama)
+  arrow_Y = Model(*arrow_data_Y, colorama)
+  arrow_Z = Model(*arrow_data_Z, colorama)
+  arrow_X = RotateModel(arrow_X, (90, 0, 0))
+  arrow_Y = RotateModel(arrow_Y, (0, 90, 0))
+  star = UnionModel((arrow_X, arrow_Y, arrow_Z))
+  translated = TranslateModel(star, (0, 3, -3.5))
+
+  arrow = translated
+  arrow.recalc(identity_mat)
+  return arrow
+
+
 
 level = Level("/sdcard/TEST.chunk")
 
@@ -752,6 +780,7 @@ class myRenderer:
 
     triangles, cube, sphere = figures(firstProgram)
     fboTex = lambda: self.FBO[1]
+    sphere = TexturedModel(sphere, fboTex)
     self.Models = UnionModel((
       TranslateModel(NoCullFaceModel(triangles), (0, 0, -7.5)),
       TexturedModel(TranslateModel(ScaleModel(cube, (0.5, 1, 0.5)), (2.5, 0, -7.5)), fboTex),
@@ -759,11 +788,11 @@ class myRenderer:
       	  TexturedModel(TranslateModel(ScaleModel(cube.clone(), (1, 1, 0.5)), (0.5 - 2.5 * i, 0, -7.5)), dbg)
       	  for i, dbg in enumerate(dbgTextures)
       ),
-      TexturedModel(TranslateModel(sphere, (0, 3, -7.5)), fboTex),
+      TranslateModel(sphere, (0, 3, -7.5)),
     ))
 
-    arrow = Model(*arrow_data, self.colorama)
-    self.arrow = TexturedModel(TranslateModel(arrow, (0, 3, -3.5)), atlas)
+    self.arrow = arrowed_star(self)
+    self.marker = TranslateModel(ScaleModel(sphere.clone(), (0.2, 0.2, 0.2)), (0, 0, 0))
 
     # первый сигнал перерасчёта матриц модели во всей иерархии моделей
 
@@ -771,7 +800,6 @@ class myRenderer:
 
     level.renderer = self
     level.recalc(identity_mat)
-    self.arrow.recalc(identity_mat)
 
     self.ready = True
 
@@ -783,6 +811,7 @@ class myRenderer:
     self.updMVP = False
 
     self.Models.recalc(MVPmatrix)
+    self.marker.recalc(MVPmatrix)
 
   def calcViewMatrix(self):
     q = Quaternion.fromYPR(self.yaw, self.pitch, self.roll)
@@ -805,11 +834,16 @@ class myRenderer:
     glViewport(0, 0, width, height)
     self.W, self.H, self.WH_ratio = width, height, width / height
 
-    perspectiveM(self.projectionM, 0, 90, self.WH_ratio, 0.01, 1000000)
+    self.near = 0.01
+    self.far = 1000000
+    perspectiveM(self.projectionM, 0, 90, self.WH_ratio, self.near, self.far)
     self.calcMVPmatrix()
 
-    if self.FBO is not None: deleteFrameBuffer(self.FBO)
-    self.FBO = newFrameBuffer(width, height, True)
+    if self.FBO is not None:
+      deleteFrameBuffer(self.FBO)
+      deleteFrameBuffer(self.FBO2)
+    self.FBO  = newFrameBuffer(width, height, True)
+    self.FBO2 = newFrameBuffer(width, height, True)
 
     # настройка glyphs
 
@@ -840,6 +874,7 @@ class myRenderer:
     program = self.program
     enableProgram(program.program)
     self.Models.draw()
+    self.marker.draw()
 
     # Модели
     self.colorama.mode(0)
@@ -875,6 +910,33 @@ class myRenderer:
       self.gridProgram2.draw(self.WH_ratio)
       self.glyphs.draw(self.WH_ratio)
 
+  def movedDrawColorDimension(self):
+    glClearColor(0, 0, 0, 1)
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+    glEnable(GL_CULL_FACE)
+    glEnable(GL_DEPTH_TEST)
+    glDisable(GL_BLEND)
+
+    self.colorama.mode(3)
+    self.colorama.draw(self.arrow)
+
+  def movedReadPixel(self, x, y):
+    def handler():
+      glBindFramebuffer(GL_FRAMEBUFFER, self.FBO2[0])
+
+      self.movedDrawColorDimension()
+      rgba = self.readPixel(x, self.H - y)
+      cb = self.colorama.to_n(rgba)
+      # print("👆 moved CB:", cb, rgba)
+
+      glBindFramebuffer(GL_FRAMEBUFFER, 0)
+      return cb
+
+    cb = await(self.view, handler)
+    if cb is None: return
+    return cb()
+
   def readPixel(self, x, y):
     buffer = MyBuffer.allocateDirect(4)
     buffer._m_order(MyBuffer.nativeOrder)
@@ -882,6 +944,8 @@ class myRenderer:
     arr = BYTE.new_array(buffer._m_remaining())
     buffer._m_get(arr)
     return bytes(arr)
+
+
 
   # Основная отрисовочная петля
   def onDrawFrame(self, gl10):
@@ -900,6 +964,7 @@ class myRenderer:
     if self.updMVP: self.calcMVPmatrix()
 
     glBindFramebuffer(GL_FRAMEBUFFER, self.FBO[0])
+
     queue = self.clickHandlerQueue
     cbs = []
     if queue:
@@ -913,6 +978,7 @@ class myRenderer:
 
     if self.skyboxN == 4:
       self.drawColorDimension(True)
+      # self.movedDrawColorDimension()
     else: self.drawScene()
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0)
@@ -984,11 +1050,36 @@ class myRenderer:
     self.camera = self.camX, self.camY, self.camZ
     self.calcViewMatrix()
 
+  def unproject(self, x, y):
+    x = x / self.W * 2 - 1
+    y = 1 - y / self.H * 2
+    z = 1 - self.near * 2 # долго искал зависимость, но нашёл
+    inv = FLOAT.new_array(16)
+    multiplyMM(inv, 0, self.projectionM, 0, self.viewM, 0)
+    invertM(inv, 0, inv, 0)
+    pos = (x, y, z, 1)._a_float
+    pos2d = FLOAT.new_array(4)
+    multiplyMV(pos2d, 0, inv, 0, pos, 0)
+    x, y, z, w = pos2d
+    assert w, "здесь 0 недопустим"
+    w = 1 / w
+    return x * w, y * w, z * w
+
+  def cam_unproject(self, x, y, dist = 1):
+    cx, cy, cz = self.camera
+    x, y, z = self.unproject(x, y)
+    x -= cx
+    y -= cy
+    z -= cz
+    L = dist / (x * x + y * y + z * z) ** 0.5
+    # как раз за счёт "z = 1 - self.near * 2" в предыдущем методе, в центре экрана L = 1 (при dist = 1)
+    return cx + x * L, cy + y * L, cz + z * L
+
   def restart(self):
     print2("~" * 53)
     self.ready = self.ready2 = False
     self.W = self.H = self.WH_ratio = -1
-    self.FBO = None
+    self.FBO = self.FBO2 = None
     SkyBox.restart()
     self.findNearestPlanet = lambda: None
     level.restart()
@@ -1057,6 +1148,7 @@ class activityHandler:
     self.prevXY = {}
     self.startXYT = {}
     self.events = {}
+    self.moveLocator = {}
 
     return True # lock setContentView
 
@@ -1072,15 +1164,20 @@ class activityHandler:
     self.viewPause()
   def onStop(self): print("onStop")
   def onDestroy(self): print("onDestroy")
+
   def onTouchEvent(self, e):
     action = e._m_getAction()
     getX = e._mw_getX(int)
     getY = e._mw_getY(int)
     getPointerId = e._mw_getPointerId(int)
+
     prevXY, startXYT, renderer = self.prevXY, self.startXYT, self.renderer
+    moveLocator = self.moveLocator
+
     actionN = action >> 8
     action &= 255
     T = time()
+
     if action in ACTION_DOWN:
       x, y, id = getX(actionN), getY(actionN), getPointerId(actionN)
       t = renderer.getTByPosition(x, y)
@@ -1090,15 +1187,25 @@ class activityHandler:
         except KeyError: ev = self.events[t] = set()
         ev.add(id)
         renderer.event(t, True)
-      else: prevXY[id] = x, y
+        moveLocator[id] = None
+      else:
+        prevXY[id] = x, y
+        moveLocator[id] = renderer.movedReadPixel(x, y)
       startXYT[id] = [x, y, T, True]
     elif action == ACTION_MOVE:
       for p in range(e._m_getPointerCount()):
         x, y, id = getX(p), getY(p), getPointerId(p)
-        prevv = prevXY[id]
-        if prevv is None: continue
-        prevX, prevY = prevv
+        prev_xy = prevXY.get(id)
+        if prev_xy is None: continue
+
+        prevX, prevY = prev_xy
+        if x == prevX and y == prevY: continue
         prevXY[id] = x, y
+
+        locator = moveLocator.get(id)
+        if locator is not None:
+          locator(x, y)
+          continue
         self.renderer.move(x - prevX, y - prevY)
 
         xx, yy, t, ok = startXYT[id]
@@ -1106,6 +1213,7 @@ class activityHandler:
     elif action in ACTION_UP:
       x, y, id = getX(actionN), getY(actionN), getPointerId(actionN)
       prevXY[id] = 0, 0 # del prevXY[id] пока нет :/
+      moveLocator[id] = None
       for t, ev in self.events.items():
         ev.remove(id)
         if not ev: renderer.event(t, False)
@@ -1116,13 +1224,16 @@ class activityHandler:
     elif action == ACTION_CANCEL:
       self.events.clear()
       renderer.clear_events()
+      moveLocator.clear()
     return True
+
   def onKeyDown(self, num, e):
     print("onKeyDown", num, e)
     return True
   def onKeyUp(self, num, e):
     print("onKeyUp", num, e)
     return True
+
   reverse = {
     "cr": onCreate,
     "st": onStart,
