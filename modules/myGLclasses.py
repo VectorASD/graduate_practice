@@ -72,30 +72,6 @@ class Model:
 
 
 
-def buildModel(faces):
-  VBOdata = []
-  VBOdict = {}
-  IBOdata = []
-  VBOextend = VBOdata.extend
-  IBOextend = IBOdata.extend
-  for xyz, xyz2, xyz3 in faces:
-    try: index = VBOdict[xyz]
-    except KeyError:
-      index = VBOdict[xyz] = len(VBOdict)
-      VBOextend(xyz)
-    try: index2 = VBOdict[xyz2]
-    except KeyError:
-      index2 = VBOdict[xyz2] = len(VBOdict)
-      VBOextend(xyz2)
-    try: index3 = VBOdict[xyz3]
-    except KeyError:
-      index3 = VBOdict[xyz3] = len(VBOdict)
-      VBOextend(xyz3)
-    IBOextend((index, index2, index3))
-  return VBOdata, IBOdata
-
-
-
 class TranslateModel:
   type = "TranslateModel"
   def __init__(self, model, translate):
@@ -185,7 +161,7 @@ class RotateModel:
 
 class MatrixModel:
   type = "MatrixModel"
-  def __init__(self, model, matrix, info):
+  def __init__(self, model, matrix, info = None):
     self.model = model
     self.matrix = matrix
     self.info = info
@@ -194,9 +170,17 @@ class MatrixModel:
     # self.setColor = model.setColor
 
   def recalc(self, mat):
+    self.mat = mat
+    self.update()
+
+  def update(self):
     sMat = FLOAT.new_array(16)
-    multiplyMM(sMat, 0, mat, 0, self.matrix, 0)
+    multiplyMM(sMat, 0, self.mat, 0, self.matrix, 0)
     self.model.recalc(sMat)
+  def update2(self, matrix):
+    self.matrix = matrix
+    try: self.update()
+    except AttributeError: pass # если update2 вызван до recalc, то self.mat просто нет
 
   def clone(self):
     return MatrixModel(self.model.clone(), self.matrix, self.info)
@@ -209,6 +193,7 @@ class UnionModel:
     self.models = models
 
   def recalc(self, mat):
+    self.mat = mat
     for model in self.models: model.recalc(mat)
 
   def draw(self):
@@ -556,86 +541,6 @@ void main() {
     self.func = func
     self.renderer = renderer
     self.location = uMVPMatrix
-
-
-
-def figures(shaderProgram):
-  ratio = (2 ** 2 - 1) ** 0.5
-  ratio2 = ratio * 0.6
-
-  triangles = Model((
-      0,  ratio, 4, 1, 0, 0, 1, -1, -1,
-     -2, -ratio, 4, 0, 1, 0, 1, -1, -1,
-      2, -ratio, 4, 0, 0, 1, 1, -1, -1,
-   -1.6,  ratio, 4, 1, 1, 0, 1, -1, -1,
-   -1.2, ratio2, 4, 1, 0, 1, 1, -1, -1,
-     -2, ratio2, 4, 0, 1, 1, 1, -1, -1,
-   -1.2,  ratio, 4, 0, 0, 0, 0, -1, -1,
-  ), (
-    0, 2, 1, 3, 4, 5, 0, 4, 6, # старые 3 треугольника
-  ), shaderProgram)
-
-  cube = Model((
-    -1, -1, -1,   1, 1, 1, 1,   -1, -1, #  0
-     1, -1, -1,   1, 0, 0, 1,   -1, -1, #  1
-     1, -1,  1,   1, 1, 0, 1,   -1, -1, #  2
-    -1, -1,  1,   0, 0, 1, 1,   -1, -1, #  3
-    -1,  1, -1,   0, 1, 0, 1,   -1, -1, #  4
-     1,  1, -1,   0, 1, 1, 1,   -1, -1, #  5
-     1,  1,  1,   0, 0, 0, 0,   -1, -1, #  6
-    -1,  1,  1,   1, 0, 1, 1,   -1, -1, #  7
-    -1, -1, -1,   1, 1, 1, 1,    1, 0, # 8
-     1, -1, -1,   1, 0, 0, 1,    0, 0, # 9
-    -1,  1, -1,   0, 1, 0, 1,    1, 1, # 10
-     1,  1, -1,   0, 1, 1, 1,    0, 1, # 11
-  ), (
-     0,  1,  2,  0,  2,  3, # дно куба
-   # 0,  4,  1,  1,  4,  5, # фронт
-     8, 10,  9,  9, 10, 11, # фронт
-     1,  5,  2,  2,  5,  6, # правый бок
-     2,  7,  3,  2,  6,  7, # тыл
-     3,  7,  0,  0,  7,  4, # левый бок
-     4,  7,  5,  5,  7,  6, # верх куба
-  ), shaderProgram)
-
-  gridN = 8
-  gridRange = range(gridN)
-  faces = []
-  facesAppend = faces.append
-  for x in gridRange:
-    for z in gridRange:
-      x1, x2 = x / gridN * 2 - 1, (x + 1) / gridN * 2 - 1
-      z1, z2 = z / gridN * 2 - 1, (z + 1) / gridN * 2 - 1
-      a, b, c, d = (x1, -1, z1, x1, z1), (x1, -1, z2, x1, z2), (x2, -1, z1, x2, z1), (x2, -1, z2, x2, z2)
-      facesAppend((a, c, b))
-      facesAppend((b, c, d))
-      a, b, c, d = (x1, 1, z1, x1, z1), (x1, 1, z2, x1, z2), (x2, 1, z1, x2, z1), (x2, 1, z2, x2, z2)
-      facesAppend((a, b, c))
-      facesAppend((b, d, c))
-      a, b, c, d = (-1, x1, z1, x1, z1), (-1, x1, z2, x1, z2), (-1, x2, z1, x2, z1), (-1, x2, z2, x2, z2)
-      facesAppend((a, b, c))
-      facesAppend((b, d, c))
-      a, b, c, d = (1, x1, z1, x1, z1), (1, x1, z2, x1, z2), (1, x2, z1, x2, z1), (1, x2, z2, x2, z2)
-      facesAppend((a, c, b))
-      facesAppend((b, c, d))
-      a, b, c, d = (x1, z1, -1, x1, z1), (x1, z2, -1, x1, z2), (x2, z1, -1, x2, z1), (x2, z2, -1, x2, z2)
-      facesAppend((a, b, c))
-      facesAppend((b, d, c))
-      a, b, c, d = (x1, z1, 1, x1, z1), (x1, z2, 1, x1, z2), (x2, z1, 1, x2, z1), (x2, z2, 1, x2, z2)
-      facesAppend((a, c, b))
-      facesAppend((b, c, d))
-  VBOdata, IBOdata = buildModel(faces)
-  VBOdata2 = []
-  VBOextend = VBOdata2.extend
-  for n in range(0, len(VBOdata), 5):
-    x, y, z, U, V = VBOdata[n : n + 5]
-    L = (x * x + y * y + z * z) ** 0.5
-    # r, g, b = (sin(n * 3) + 2) / 3, (sin(n * 4) + 2) / 3, (sin(n * 5) + 2) / 3
-    # L = 1 / L * 0.5 + L * 0.5
-    L = 1 / L
-    VBOextend((x / L, y / L, z / L, 0, 0, 0, 0, (U + 1) / 2, (V + 1) / 2))
-  sphere = Model(VBOdata2, IBOdata, shaderProgram)
-  return triangles, cube, sphere
 
 
 

@@ -33,6 +33,7 @@ exit()
 import myGL
 import myGLclasses
 import myGLtext
+import geometry
 # print("ok!", time() - T) # 0.02 s.
 
 
@@ -340,10 +341,7 @@ class Chunk:
 
   def delete(self):
     self.remove()
-    level = self.level
-    level.chunks.pop(self.my_pos)
-    if not level.chunks:
-      level.default()
+    self.level.remove_chunk(self.my_pos)
 
   def pack(self, file):
     file.pickle(self.my_pos)
@@ -368,10 +366,13 @@ class Level:
   def __init__(self, path):
     self.chunks = {}
     self.mat = None
+    self.mat2 = None # self.mat @ self.matrix
     self.renderer = None
 
     self.path = path
     self.save_time = None
+    self.matrix = FLOAT.new_array(16)
+    setIdentityM(self.matrix, 0)
 
     try: self.load()
     except OSError: self.default()
@@ -384,8 +385,9 @@ class Level:
     try: chunk = self.chunks[chunk_pos]
     except KeyError:
       chunk = self.chunks[chunk_pos] = Chunk(self, chunk_pos)
-      mat = self.mat
-      if mat: chunk.recalc(mat)
+      self.upd_bounding()
+      mat2 = self.mat2
+      if mat2: chunk.recalc(mat2)
     chunk.setblock(x, y, z, id, upd_nb)
     self.save_time = time() + 3
 
@@ -403,12 +405,23 @@ class Level:
     try: return self.chunks[chunk_pos]
     except KeyError: return AirChunk
 
+  def remove_chunk(self, pos):
+    self.chunks.pop(pos)
+    if not self.chunks:
+      self.default()
+    self.upd_bounding()
+
 
 
   def recalc(self, mat):
     self.mat = mat
+    self.update()
+
+  def update(self):
+    self.mat2 = mat2 = FLOAT.new_array(16)
+    multiplyMM(mat2, 0, self.mat, 0, self.matrix, 0)
     for chunk in self.chunks.values():
-      chunk.recalc(mat) 
+      chunk.recalc(mat2)
 
   def draw(self):
     save_time = self.save_time
@@ -442,6 +455,7 @@ class Level:
       chunk.unpack(file)
       print("LOADED:", chunk.my_pos)
       chunks[chunk.my_pos] = chunk
+    self.upd_bounding()
 
   def save(self):
     with open(self.path, "wb") as file:
@@ -453,164 +467,32 @@ class Level:
 
 
 
-def make_arrow(color1, color2, color3):
-  T = time()
-  n = 64
-  cycle = 2 * pi
-  sequence = tuple(cycle * (i / n) if i < n else 0 for i in range(n + 1))
-  sin_seq = tuple(map(sin, sequence))
-  cos_seq = tuple(map(cos, sequence))
+  def upd_bounding(self):
+    min_x = min_y = min_z = float("inf")
+    max_x = max_y = max_z = -min_z
+    for (x, y, z), chunk in self.chunks.items():
+      min_x = min(min_x, x); max_x = max(max_x, x)
+      min_y = min(min_y, y); max_y = max(max_y, y)
+      min_z = min(min_z, z); max_z = max(max_z, z)
+    self.bounding = min_x, min_y, min_z, max_x, max_y, max_z
+    self.center = (min_x + max_x) / 2, (min_y + max_y) / 2, (min_z + max_z) / 2
 
-  n4 = n // 4
-  n5_16 = n * 5 // 16
-  n2 = n // 2
-  n_m1 = n - 1
+    renderer = self.renderer
+    if renderer and self is renderer.choosed_level:
+      self.choose()
 
-  R = 0.05
-  R2 = 0.025
-  R3 = 0.1
-  R4 = 0.025
-  R5 = 0.025
+  def choose(self):
+    arrows = self.renderer.arrows
+    x, y, z = self.center
+    arrows.set_pos(((x + .5) * ChunkSX, (y + .5) * ChunkSY, (z + .5) * ChunkSZ))
 
-  z = R
-  circles = [
-    (sin_seq[i] * R, z + (1 - cos_seq[i]) * R)
-    for i in range(n4 + 1)]
-  append = circles.append
-  z = circles[-1][1]
-  z += 0.6
-  for i in range(n4 + 1):
-    append((R + (1 - cos_seq[i]) * R2, z + sin_seq[i] * R2))
-  z = circles[-1][1]
-  for i in range(n5_16 + 1):
-    append((R3 + sin_seq[i] * R4, z + (1 - cos_seq[i]) * R4))
-  z = circles[-1][1]
-  z -= (1 - cos_seq[n5_16]) * R5
-  z += (circles[-1][0] - sin_seq[n5_16] * R5) * 3
-  for i in range(n5_16, n2 + 1):
-    append((sin_seq[i] * R5, z + (1 - cos_seq[i]) * R5))
+    self.renderer.choosed_level = self
 
-  circles.extend((R, -z) for R, z in circles[::-1])
-
-  T2 = time()
-
-  faces = []
-  IBOdata = []
-  append = faces.append
-
-  color1 = tuple(i / 255 for i in color1)
-  color2 = tuple(i / 255 for i in color2)
-  _rand = tuple(color1 if bit else color2 for bit in rand_bits(67)) * 100
-  _rand_i = iter(_rand)
-
-  def halo(R, z):
-    nonlocal _rand_i
-    dn = len(faces) // 9
-    extend = faces.extend
-    rand = _rand_i.__next__
-    cr, cb, cg = color3
-    for i in range(n):
-      try: r, g, b = rand()
-      except StopIteration:
-        _rand_i = iter(_rand)
-        rand = _rand_i.__next__
-        r, g, b = rand()
-      extend(sin_seq[i] * R, cos_seq[i] * R, z, r, g, b, cr, cb, cg)
-    return dn
-
-  def lid(z, swap): # крышка
-    dn = last_dn
-    dot = len(faces) // 9
-
-    r, g, b = color1 if random_bool() else color2
-    cr, cb, cg = color3
-    faces.extend(0, 0, z, r, g, b, cr, cb, cg)
-
-    extend = IBOdata.extend
-    if swap:
-      for i in range(dn, dn + n_m1):
-        extend(i, dot, i + 1)
-      extend(dn + n_m1, dot, dn)
-    else:
-      for i in range(dn, dn + n_m1):
-        extend(dot, i, i + 1)
-      extend(dot, dn + n_m1, dn)
-
-  def tube(R, z): # туба
-    nonlocal last_dn
-    dn = last_dn
-    dn2 = last_dn = halo(R, z)
-
-    extend = IBOdata.extend
-    for i in range(n_m1):
-      a = dn + i
-      b = a + 1
-      c = dn2 + i
-      extend(b, a, c,   b, c, c + 1)
-    extend(dn, dn + n_m1, dn2 + n_m1,   dn, dn2 + n_m1, dn2)
-
-  a = circles[0]
-  b = circles[1]
-  last_dn = halo(*b)
-  lid(a[1], False)
-  for i in range(2, len(circles) - 1):
-    b = circles[i]
-    tube(*b)
-  a = circles[-1]
-  lid(a[1], True)
-
-  T3 = time()
-  # VBOdata, IBOdata = buildModel(faces)
-  VBOdata = faces
-
-  T4 = time()
-  """
-  VBOdata2 = []
-  extend = VBOdata2.extend
-  rand = rand_bits(67)
-  for i in range(0, len(VBOdata), 3):
-    x, y, z = VBOdata[i : i+3]
-    r, g, b = color1 if rand[i % 67] else color2
-    extend(x, y, z, r, g, b, 1, 1, 1)
-  отправилось, как часть функции "halo"
-  """
-
-  T5 = time()
-  # print(round(T2 - T, 5), "+", round(T3 - T2, 5), "+", round(T4 - T3, 5), "+", round(T5 - T4, 5))
-  # print(len(VBOdata) // 9, len(IBOdata) // 3) # количество вершин и полигонов
-  return VBOdata, IBOdata
-
-def arrowed_star(renderer):
-  T = time()
-
-  def cb(delta_vec):
-    def handler(x, y):
-      pos = renderer.unproject(x, y)
-      renderer.marker.update2(pos)
-
-    return handler
-
-  colorama = renderer.colorama
-  arrow_data_X = make_arrow((170, 0, 0), (255, 85, 85), colorama.next_cb(lambda: cb((1, 0, 0))))
-  arrow_data_Y = make_arrow((0, 170, 0), (85, 255, 85), colorama.next_cb(lambda: cb((0, 1, 0))))
-  arrow_data_Z = make_arrow((0, 0, 170), (85, 85, 255), colorama.next_cb(lambda: cb((0, 0, 1))))
-  # print("•••", time() - T)
-  # было:  0.00032 + 0.00725 + 0.28886 + 0.02229 = 0.31872 секунд (buildModel как всегда самый требовательный)
-  # стало: 0.00042 + 0.01368 + 0.0     + 0.0     = 0.0141  секунд
-  # 22.6x-кратный прирост!
-  # Оба замера при n = 64, что соответствует 4226 вершинам и 8448 полигонам
-
-  arrow_X = Model(*arrow_data_X, colorama)
-  arrow_Y = Model(*arrow_data_Y, colorama)
-  arrow_Z = Model(*arrow_data_Z, colorama)
-  arrow_X = RotateModel(arrow_X, (90, 0, 0))
-  arrow_Y = RotateModel(arrow_Y, (0, 90, 0))
-  star = UnionModel((arrow_X, arrow_Y, arrow_Z))
-  translated = TranslateModel(star, (0, 3, -3.5))
-
-  arrow = translated
-  arrow.recalc(identity_mat)
-  return arrow
+  def move(self, x, y, z):
+    mat = self.matrix
+    translateM2(mat, 0, mat, 0, x, y, z)
+    self.renderer.arrows.set_mat(mat)
+    self.update()
 
 
 
@@ -659,6 +541,7 @@ class myRenderer:
 
     # Editor
     self.selected_tile = 1
+    self.choosed_level = None
 
   def fps(self):
     T = time()
@@ -791,7 +674,7 @@ class myRenderer:
       TranslateModel(sphere, (0, 3, -7.5)),
     ))
 
-    self.arrow = arrowed_star(self)
+    self.arrows = ArrowedStar(self)
     self.marker = TranslateModel(ScaleModel(sphere.clone(), (0.2, 0.2, 0.2)), (0, 0, 0))
 
     # первый сигнал перерасчёта матриц модели во всей иерархии моделей
@@ -800,6 +683,7 @@ class myRenderer:
 
     level.renderer = self
     level.recalc(identity_mat)
+    level.choose()
 
     self.ready = True
 
@@ -882,7 +766,7 @@ class myRenderer:
     self.colorama.draw(level)
 
     self.colorama.mode(2)
-    self.colorama.draw(self.arrow)
+    self.colorama.draw(self.arrows)
 
     # GUI
     self.gridProgram.draw(self.WH_ratio)
@@ -902,7 +786,7 @@ class myRenderer:
     self.colorama.draw(level)
 
     self.colorama.mode(3)
-    self.colorama.draw(self.arrow)
+    self.colorama.draw(self.arrows)
 
     # GUI
     if gui:
@@ -919,7 +803,7 @@ class myRenderer:
     glDisable(GL_BLEND)
 
     self.colorama.mode(3)
-    self.colorama.draw(self.arrow)
+    self.colorama.draw(self.arrows)
 
   def movedReadPixel(self, x, y):
     def handler():
@@ -1050,20 +934,7 @@ class myRenderer:
     self.camera = self.camX, self.camY, self.camZ
     self.calcViewMatrix()
 
-  def unproject(self, x, y):
-    x = x / self.W * 2 - 1
-    y = 1 - y / self.H * 2
-    z = 1 - self.near * 2 # долго искал зависимость, но нашёл
-    inv = FLOAT.new_array(16)
-    multiplyMM(inv, 0, self.projectionM, 0, self.viewM, 0)
-    invertM(inv, 0, inv, 0)
-    pos = (x, y, z, 1)._a_float
-    pos2d = FLOAT.new_array(4)
-    multiplyMV(pos2d, 0, inv, 0, pos, 0)
-    x, y, z, w = pos2d
-    assert w, "здесь 0 недопустим"
-    w = 1 / w
-    return x * w, y * w, z * w
+  unproject = _unproject # geometry.py
 
   def cam_unproject(self, x, y, dist = 1):
     cx, cy, cz = self.camera
@@ -1190,7 +1061,8 @@ class activityHandler:
         moveLocator[id] = None
       else:
         prevXY[id] = x, y
-        moveLocator[id] = renderer.movedReadPixel(x, y)
+        moveLocator[id] = locator = renderer.movedReadPixel(x, y)
+        if locator is not None: locator(x, y)
       startXYT[id] = [x, y, T, True]
     elif action == ACTION_MOVE:
       for p in range(e._m_getPointerCount()):
