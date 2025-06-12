@@ -494,6 +494,12 @@ class Level:
     self.renderer.arrows.set_mat(mat)
     self.update()
 
+  def rotate(self, rot_mat):
+    mat = self.matrix
+    multiplyMM(mat, 0, mat, 0, rot_mat, 0)
+    self.renderer.arrows.set_mat(mat)
+    self.update()
+
 
 
 level = Level("/sdcard/TEST.chunk")
@@ -520,6 +526,7 @@ class myRenderer:
     self.frame_pos = 0
     self.frame_arr = []
     self.fpsS      = "?"
+    self.prev_dbg_text = None
 
     # Window
     self.W = self.H = self.WH_ratio = -1
@@ -546,6 +553,12 @@ class myRenderer:
   def fps(self):
     T = time()
     arr = self.frame_arr
+    upd = False
+
+    if self.prev_dbg_text != dbg_text:
+      self.prev_dbg_text = dbg_text
+      upd = True
+
     if T >= self.last_time:
       self.last_time = T + 0.1
       fd = self.frames - self.last_frames
@@ -555,12 +568,18 @@ class myRenderer:
         pos = self.frame_pos
         arr[pos] = fd
         self.frame_pos = (pos + 1) % 10
-      self.fpsS = S = sum(arr) * 10 // len(arr)
+      self.fpsS = sum(arr) * 10 // len(arr)
+      upd = True
+
+    if upd:
       if self.CW_mode:
-        text = "fps: %s\ncam: %.2f %.2f %.2f\nrot: %.2f %.2f %.2f" % (S, self.camX, self.camY, self.camZ, self.yaw, self.pitch, self.roll)
+        text = "fps: %s\ncam: %.2f %.2f %.2f\nrot: %.2f %.2f %.2f" % (self.fpsS, self.camX, self.camY, self.camZ, self.yaw, self.pitch, self.roll)
       else:
-        text = "fps: %s\nchunks: %s%s" % (S, len(level.chunks), "\nsaved" if level.save_time is None else "")
+        text = "fps: %s\nchunks: %s%s" % (self.fpsS, len(level.chunks), "\nsaved" if level.save_time is None else "")
+      if dbg_text is not None:
+        text = "%s\n%s" % (text, dbg_text)
       self.glyphs.setText(self.fpsText, text, self.W / 16)
+
     return self.fpsS
 
 
@@ -674,7 +693,8 @@ class myRenderer:
       TranslateModel(sphere, (0, 3, -7.5)),
     ))
 
-    self.arrows = ArrowedStar(self)
+    #self.arrows = ArrowedStar(self)
+    self.arrows = RotationStar(self)
     self.marker = TranslateModel(ScaleModel(sphere.clone(), (0.2, 0.2, 0.2)), (0, 0, 0))
 
     # первый сигнал перерасчёта матриц модели во всей иерархии моделей

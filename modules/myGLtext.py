@@ -190,7 +190,7 @@ def FastPacker(W, H, boxes):
 
 
 def canvasGen(packed):
-  packed, p, W, H = packed
+  packed, p, W, H, font_size = packed
   bitmap = MyBitmap(W, H, ARGB_8888)
   canvas = MyCanvas(bitmap)
   #canvas.drawRGB(180, 200, 255)
@@ -211,9 +211,14 @@ def canvasGen(packed):
   p.setStyle(FILL)
   for x, y, (WH, letter, (left, right, top, bottom)) in packed:
     #print("size:", letter, right-left, bottom-top, WH)
+    dot = letter == "."
+    if dot:
+      p.setTextSize(font_size * 2)
+      y += 5
     canvas.translate(x, y)
     canvas.drawText(letter, -left, -top, p.p)
     canvas.translate(-x, -y)
+    if dot: p.setTextSize(font_size)
 
   #p.setColor(0xff80adff)
   #p.setStyle(FILL)
@@ -238,17 +243,21 @@ def glyphRenderer(W, H, font, ab):
   rect = jRect()
   boxes = []
   for letter in ab:
-    # print(repr(letter))
     p.getTextBounds(letter, 0, 1, rect)
     box = rect._f_left, rect._f_right, rect._f_top, rect._f_bottom
+    # print(repr(letter), box)
     w, h = box[1] - box[0], box[3] - box[2]
+    if letter == ".":
+      w *= 2
+      h *= 2
+      box = (box[0], box[0] + w, box[2], box[2] + h)
     boxes.append(((h, w), letter, box))
 
   dict = {}
   packed = FastPacker(W, H, boxes)
   for x, y, ((h, w), letter, box) in packed:
     dict[letter] = (x - 1) / W, (y - 1) / H, (w + 2) / W, (h + 2) / H, box
-  return (packed, p, W, H), (mTop, mBottom, dict)
+  return (packed, p, W, H, font[2]), (mTop, mBottom, dict)
 
 
 

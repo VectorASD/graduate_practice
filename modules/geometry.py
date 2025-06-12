@@ -1,3 +1,4 @@
+import myGL # matrix operations...
 
 def buildModel(faces):
   VBOdata = []
@@ -96,8 +97,7 @@ def figures(shaderProgram):
     L = (x * x + y * y + z * z) ** 0.5
     # r, g, b = (sin(n * 3) + 2) / 3, (sin(n * 4) + 2) / 3, (sin(n * 5) + 2) / 3
     # L = 1 / L * 0.5 + L * 0.5
-    L = 1 / L
-    VBOextend((x / L, y / L, z / L, 0, 0, 0, 0, (U + 1) / 2, (V + 1) / 2))
+    VBOextend((x * L, y * L, z * L, 0, 0, 0, 0, (U + 1) / 2, (V + 1) / 2))
   sphere = Model(VBOdata2, IBOdata, shaderProgram)
   return triangles, cube, sphere
 
@@ -105,132 +105,176 @@ def figures(shaderProgram):
 
 
 
-def make_arrow(color1, color2, color3):
-  T = time()
-  n = 64
-  cycle = 2 * pi
-  sequence = tuple(cycle * (i / n) if i < n else 0 for i in range(n + 1))
-  sin_seq = tuple(map(sin, sequence))
-  cos_seq = tuple(map(cos, sequence))
+class TubeBuilder:
+  def __init__(self, rounded = False):
+    n = 64
+    cycle = 2 * pi
+    sequence = tuple(cycle * (i / n) if i < n else 0 for i in range(n + 1))
+    sin_seq = tuple(map(sin, sequence))
+    cos_seq = tuple(map(cos, sequence))
+    self.seqs = sin_seq, cos_seq
 
-  n4 = n // 4
-  n5_16 = n * 5 // 16
-  n2 = n // 2
-  n_m1 = n - 1
+    n4 = n // 4
+    n5_16 = n * 3 // 8 if rounded else n * 5 // 16
+    n2 = n // 2
+    n_m1 = n - 1
+    self.n = n, n4, n5_16, n2, n_m1
+    self.n_m1 = n_m1
+    self.rounded = rounded
 
-  R = 0.05
-  R2 = 0.025
-  R3 = 0.1
-  R4 = 0.025
-  R5 = 0.025
+    T = time()
+    self.make_arrow()
+    T2 = time()
+    print("make_arrow:", round(T2 - T, 5))
 
-  z = R
-  circles = [
-    (sin_seq[i] * R, z + (1 - cos_seq[i]) * R)
-    for i in range(n4 + 1)]
-  append = circles.append
-  z = circles[-1][1]
-  z += 0.6
-  for i in range(n4 + 1):
-    append((R + (1 - cos_seq[i]) * R2, z + sin_seq[i] * R2))
-  z = circles[-1][1]
-  for i in range(n5_16 + 1):
-    append((R3 + sin_seq[i] * R4, z + (1 - cos_seq[i]) * R4))
-  z = circles[-1][1]
-  z -= (1 - cos_seq[n5_16]) * R5
-  z += (circles[-1][0] - sin_seq[n5_16] * R5) * 3
-  for i in range(n5_16, n2 + 1):
-    append((sin_seq[i] * R5, z + (1 - cos_seq[i]) * R5))
+  def set_color(self, color1, color2, color3):
+    color1 = tuple(i / 255 for i in color1)
+    color2 = tuple(i / 255 for i in color2)
+    self.rand = tuple(color1 if bit else color2 for bit in rand_bits(67)) * 100
+    self.rand_i = iter(self.rand)
+    self.color3 = color3
+    self.color1or2 = lambda: color1 if random_bool() else color2
 
-  circles.extend((R, -z) for R, z in circles[::-1])
+  def make_arrow(self):
+    n, n4, n5_16, n2, n_m1 = self.n
+    sin_seq, cos_seq = self.seqs
+    rounded = self.rounded
 
-  T2 = time()
+    R = 0.05
+    R2 = 0.025
+    R3 = 0.1
+    R4 = 0.025
+    R5 = 0.025
 
-  faces = []
-  IBOdata = []
-  append = faces.append
+    z = R
+    circles = [
+      (sin_seq[i] * R, z + (1 - cos_seq[i]) * R)
+      for i in range(n4 + 1)]
+    append = circles.append
+    z = circles[-1][1]
+    if rounded:
+      for i in range(1, 10):
+        append((R, z + i / 10 * 0.6))
+    z += 0.6
+    for i in range(n4 + 1):
+      append((R + (1 - cos_seq[i]) * R2, z + sin_seq[i] * R2))
+    z = circles[-1][1]
+    for i in range(n5_16 + 1):
+      append((R3 + sin_seq[i] * R4, z + (1 - cos_seq[i]) * R4))
+    z = circles[-1][1]
+    z -= (1 - cos_seq[n5_16]) * R5
+    R_a = circles[-1][0]
+    R_b = sin_seq[n5_16] * R5
+    add = (R_a - R_b) * (2 if rounded else 3)
+    if rounded:
+      for i in range(1, 10):
+        i /= 10
+        append((R_a * (1 - i) + R_b * i, z + i * add))
+    z += add
+    for i in range(n5_16, n2 + 1):
+      append((sin_seq[i] * R5, z + (1 - cos_seq[i]) * R5))
+    z = circles[-1][1]
 
-  color1 = tuple(i / 255 for i in color1)
-  color2 = tuple(i / 255 for i in color2)
-  _rand = tuple(color1 if bit else color2 for bit in rand_bits(67)) * 100
-  _rand_i = iter(_rand)
+    # circles.extend((R, -z) for R, z in circles[::-1])
+    self.circles = circles
+    self.last_z = z
 
-  def halo(R, z):
-    nonlocal _rand_i
-    dn = len(faces) // 9
-    extend = faces.extend
-    rand = _rand_i.__next__
-    cr, cb, cg = color3
-    for i in range(n):
-      try: r, g, b = rand()
-      except StopIteration:
-        _rand_i = iter(_rand)
-        rand = _rand_i.__next__
-        r, g, b = rand()
-      extend(sin_seq[i] * R, cos_seq[i] * R, z, r, g, b, cr, cb, cg)
-    return dn
+  def build(self):
+    T = time()
 
-  def lid(z, swap): # крышка
-    dn = last_dn
-    dot = len(faces) // 9
+    faces = []
+    IBOdata = []
 
-    r, g, b = color1 if random_bool() else color2
-    cr, cb, cg = color3
-    faces.extend(0, 0, z, r, g, b, cr, cb, cg)
+    rounded = self.rounded
 
-    extend = IBOdata.extend
-    if swap:
-      for i in range(dn, dn + n_m1):
-        extend(i, dot, i + 1)
-      extend(dn + n_m1, dot, dn)
-    else:
-      for i in range(dn, dn + n_m1):
-        extend(dot, i, i + 1)
-      extend(dot, dn + n_m1, dn)
+    def halo(R, z):
+      dn = len(faces) // 9
+      extend = faces.extend
+      rand_i = self.rand_i
+      rand = rand_i.__next__
+      cr, cg, cb = self.color3
+      sin_seq, cos_seq = self.seqs
+      if rounded:
+        last_z = self.last_z
+        step = pi / self.last_z / 2
+        for i in range(self.n[0]):
+          try: r, g, b = rand()
+          except StopIteration:
+            rand_i = self.rand_i = iter(self.rand)
+            rand = rand_i.__next__
+            r, g, b = rand()
+          rad = cos_seq[i] * R + last_z
+          phi = z * step
+          extend(rad * sin(phi), rad * cos(phi), sin_seq[i] * R, r, g, b, cr, cg, cb)
+      else:
+        for i in range(self.n[0]):
+          try: r, g, b = rand()
+          except StopIteration:
+            rand_i = self.rand_i = iter(self.rand)
+            rand = rand_i.__next__
+            r, g, b = rand()
+          extend(z, cos_seq[i] * R, sin_seq[i] * R, r, g, b, cr, cg, cb)
+      return dn
 
-  def tube(R, z): # туба
-    nonlocal last_dn
-    dn = last_dn
-    dn2 = last_dn = halo(R, z)
+    def lid(z, swap): # крышка
+      dn = last_dn
+      dot = len(faces) // 9
 
-    extend = IBOdata.extend
-    for i in range(n_m1):
-      a = dn + i
-      b = a + 1
-      c = dn2 + i
-      extend(b, a, c,   b, c, c + 1)
-    extend(dn, dn + n_m1, dn2 + n_m1,   dn, dn2 + n_m1, dn2)
+      r, g, b = self.color1or2()
+      cr, cg, cb = self.color3
+      if self.rounded:
+        rad = self.last_z
+        phi = z * (pi / self.last_z / 2)
+        faces.extend(rad * sin(phi), rad * cos(phi), 0, r, g, b, cr, cg, cb)
+      else: faces.extend(z, 0, 0, r, g, b, cr, cg, cb)
 
-  a = circles[0]
-  b = circles[1]
-  last_dn = halo(*b)
-  lid(a[1], False)
-  for i in range(2, len(circles) - 1):
-    b = circles[i]
-    tube(*b)
-  a = circles[-1]
-  lid(a[1], True)
+      extend = IBOdata.extend
+      n_m1 = self.n_m1
+      if swap:
+        for i in range(dn, dn + n_m1):
+          extend(i, dot, i + 1)
+        extend(dn + n_m1, dot, dn)
+      else:
+        for i in range(dn, dn + n_m1):
+          extend(dot, i, i + 1)
+        extend(dot, dn + n_m1, dn)
 
-  T3 = time()
-  # VBOdata, IBOdata = buildModel(faces)
-  VBOdata = faces
+    def tube(R, z): # туба
+      nonlocal last_dn
+      dn = last_dn
+      dn2 = last_dn = halo(R, z)
 
-  T4 = time()
-  """
-  VBOdata2 = []
-  extend = VBOdata2.extend
-  rand = rand_bits(67)
-  for i in range(0, len(VBOdata), 3):
-    x, y, z = VBOdata[i : i+3]
-    r, g, b = color1 if rand[i % 67] else color2
-    extend(x, y, z, r, g, b, 1, 1, 1)
-  отправилось, как часть функции "halo"
-  """
+      extend = IBOdata.extend
+      n_m1 = self.n_m1
+      for i in range(n_m1):
+        a = dn + i
+        b = a + 1
+        c = dn2 + i
+        extend(a, b, c,   c, b, c + 1)
+      extend(dn + n_m1, dn, dn2 + n_m1,   dn2 + n_m1, dn, dn2)
 
-  T5 = time()
-  # print(round(T2 - T, 5), "+", round(T3 - T2, 5), "+", round(T4 - T3, 5), "+", round(T5 - T4, 5))
-  # print(len(VBOdata) // 9, len(IBOdata) // 3) # количество вершин и полигонов
-  return VBOdata, IBOdata
+    circles = self.circles
+    a = circles[0]
+    b = circles[1]
+    last_dn = halo(*b)
+    lid(a[1], True)
+    for i in range(2, len(circles) - 1):
+      b = circles[i]
+      tube(*b)
+    a = circles[-1]
+    lid(a[1], False)
+
+    T2 = time()
+    print("build:", round(T2 - T, 5))
+    # print(len(faces) // 9, len(IBOdata) // 3) # количество вершин и полигонов
+    return faces, IBOdata
+
+tube_builder = TubeBuilder()
+tube_builder2 = TubeBuilder(True)
+def make_arrow(color1, color2, color3, rounded = False):
+  tb = tube_builder2 if rounded else tube_builder
+  tb.set_color(color1, color2, color3)
+  return tb.build()
 
 
 
@@ -283,9 +327,14 @@ class ArrowedStar:
     arrow_X = Model(*arrow_data_X, colorama)
     arrow_Y = Model(*arrow_data_Y, colorama)
     arrow_Z = Model(*arrow_data_Z, colorama)
-    arrow_X = RotateModel(arrow_X, (90, 0, 0))
-    arrow_Y = RotateModel(arrow_Y, (0, 90, 0))
-    star = UnionModel((arrow_X, arrow_Y, arrow_Z))
+
+    arrow_mX = RotateModel(arrow_X.clone(), (180, 0, 0))
+    arrow_mY = RotateModel(arrow_Y, (0, 0, -90))
+    arrow_Y = RotateModel(arrow_Y.clone(), (0, 0, 90))
+    arrow_mZ = RotateModel(arrow_Z, (-90, 0, 0))
+    arrow_Z = RotateModel(arrow_Z.clone(), (90, 0, 0))
+
+    star = UnionModel((arrow_X, arrow_Y, arrow_Z, arrow_mX, arrow_mY, arrow_mZ))
     scaled = ScaleModel(star, (1, 1, 1))
     translated = TranslateModel(scaled, (0, 3, -3.5))
 
@@ -303,8 +352,112 @@ class ArrowedStar:
       mat = scaled.mat
       L = lengthVec(cx - mat[12], cy - mat[13], cz - mat[14])
       L /= 4
+      L = 1
       self.set_scale((L, L, L))
-    renderer.camMoveEvent = camMoveEvent
+    self.camMoveEvent = camMoveEvent
+
+  def use(self):
+    self.renderer.camMoveEvent = self.camMoveEvent
+
+
+
+class RotationStar:
+  def cb(self, orig_normal):
+    prev_xy = None
+    def handler(x, y):
+      nonlocal prev_xy
+      global dbg_text
+
+      if prev_xy is None:
+        prev_xy = x, y
+        return
+
+      renderer = self.renderer
+      star = self.get_pos()
+
+      level = renderer.choosed_level
+      if level is None: return
+      normal = rotate_vector_without_position(level.matrix, orig_normal)
+
+      unprojected = renderer.unproject(*prev_xy)
+      a0 = find_plane_line_polar_angle(star, normal, renderer.camera, unprojected)
+      unprojected = renderer.unproject(x, y)
+      a1 = find_plane_line_polar_angle(star, normal, renderer.camera, unprojected)
+      # pos = find_plane_line_intersection(star, normal, renderer.camera, unprojected)
+      # renderer.marker.update2(pos)
+      if a0 is None or a1 is None: return
+
+      angle = min(a1 - a0, 2 * pi - abs(a1 - a0))
+      step = 2 * pi / 64
+      angle = (angle + step / 2) // step * step
+      if not angle: return
+      prev_xy = x, y
+
+      rot_mat = Rodrigues(orig_normal, angle)
+      rot_mat = rotate_around_point(rot_mat, star)
+      level.rotate(rot_mat)
+
+      reversed_angle = round(inv_Rodrigues(level.matrix, normal) / pi180, 3) % 360
+      dbg_text = "new angle: %s" % reversed_angle
+
+    return handler
+
+  def __init__(self, renderer):
+    self.renderer = renderer
+
+    T = time()
+    colorama = renderer.colorama
+    arrow_data_X = make_arrow((170, 0, 0), (255, 85, 85), colorama.next_cb(lambda: self.cb((1, 0, 0))), True)
+    arrow_data_Y = make_arrow((0, 170, 0), (85, 255, 85), colorama.next_cb(lambda: self.cb((0, 1, 0))), True)
+    arrow_data_Z = make_arrow((0, 0, 170), (85, 85, 255), colorama.next_cb(lambda: self.cb((0, 0, 1))), True)
+    # print("•••", time() - T)
+    # было:  0.00032 + 0.00725 + 0.28886 + 0.02229 = 0.31872 секунд (buildModel как всегда самый требовательный)
+    # стало: 0.00042 + 0.01368 + 0.0     + 0.0     = 0.0141  секунд
+    # 22.6x-кратный прирост!
+    # Оба замера при n = 64, что соответствует 4226 вершинам и 8448 полигонам
+
+    arrow_X = Model(*arrow_data_X, colorama)
+    arrow_Y = Model(*arrow_data_Y, colorama)
+    arrow_Z = Model(*arrow_data_Z, colorama)
+
+    arrow_X2 = RotateModel(arrow_X.clone(), (-90, 0, 90))
+    arrow_X3 = RotateModel(arrow_X.clone(), (-90, 0, 180))
+    arrow_X4 = RotateModel(arrow_X.clone(), (-90, 0, 270))
+    arrow_X = RotateModel(arrow_X, (-90, 0, 0))
+
+    arrow_Y2 = RotateModel(arrow_Y.clone(), (0, 90, 90))
+    arrow_Y3 = RotateModel(arrow_Y.clone(), (0, 90, 180))
+    arrow_Y4 = RotateModel(arrow_Y.clone(), (0, 90, 270))
+    arrow_Y = RotateModel(arrow_Y, (0, 90, 0))
+
+    arrow_Z2 = RotateModel(arrow_Z.clone(), (0, 0, 90))
+    arrow_Z3 = RotateModel(arrow_Z.clone(), (0, 0, 180))
+    arrow_Z4 = RotateModel(arrow_Z.clone(), (0, 0, 270))
+
+    star = UnionModel((arrow_X, arrow_X2, arrow_X3, arrow_X4, arrow_Y, arrow_Y2, arrow_Y3, arrow_Y4, arrow_Z, arrow_Z2, arrow_Z3, arrow_Z4))
+    scaled = ScaleModel(star, (1, 1, 1))
+    translated = TranslateModel(scaled, (0, 3, -3.5))
+
+    self.arrow = arrow = translated
+    arrow.recalc(identity_mat)
+    self.draw = arrow.draw
+    self.get_pos = lambda: translated.translate
+
+    self.set_scale = scaled.update2
+    self.set_pos = translated.update2
+    self.set_mat = arrow.recalc
+
+    def camMoveEvent():
+      cx, cy, cz = renderer.camera
+      mat = scaled.mat
+      L = lengthVec(cx - mat[12], cy - mat[13], cz - mat[14])
+      L /= 4
+      L = 1
+      self.set_scale((L, L, L))
+    self.camMoveEvent = camMoveEvent
+
+  def use(self):
+    self.renderer.camMoveEvent = self.camMoveEvent
 
 
 
@@ -349,3 +502,125 @@ def _unproject(self, x, y):
   assert w, "здесь 0 недопустим"
   w = 1 / w
   return x * w, y * w, z * w
+
+def find_plane_line_intersection(star, normal, camera, unprojected):
+  x, y, z = star
+  nx, ny, nz = normal
+  cx, cy, cz = camera
+  cx2, cy2, cz2 = unprojected
+  dx = cx2 - cx
+  dy = cy2 - cy
+  dz = cz2 - cz
+  denominator = nx * dx + ny * dy + nz * dz
+  if abs(denominator) < EPSILON: # Луч параллелен плоскости
+    return None
+  numerator = nx * (cx - x) + ny * (cy - y) + nz * (cz - z)
+  t1 = -numerator / denominator
+  return cx + dx * t1, cy + dy * t1, cz + dz * t1
+
+def norm_cross(vec, vec2):
+  x1, y1, z1 = vec
+  x2, y2, z2 = vec2
+  x = y1 * z2 - z1 * y2
+  y = z1 * x2 - x1 * z2
+  z = x1 * y2 - y1 * x2
+  L = lengthVec(x, y, z)
+  assert L, "Нулевой вектор"
+  L = 1 / L
+  return x * L, y * L, z * L
+
+def normalize(vec):
+  x, y, z = vec
+  L = lengthVec(x, y, z)
+  assert L, "Нулевой вектор"
+  L = 1 / L
+  return x * L, y * L, z * L
+
+dbg_text = None
+
+def find_plane_line_polar_angle(star, normal, camera, unprojected):
+  global dbg_text
+  x, y, z = star
+  nx, ny, nz = normal
+  X, Y, Z = find_plane_line_intersection(star, normal, camera, unprojected)
+  dx = X - x
+  dy = Y - y
+  dz = Z - z
+  anx = abs(nx)
+  any = abs(ny)
+  anz = abs(nz)
+  arbitrary = ((1, 0, 0) if anx <= any and anx <= anz else
+              (0, 1, 0) if any <= anx and any <= anz else
+              (0, 0, 1))
+  D1 = norm_cross(normal, arbitrary)
+  D2 = norm_cross(normal, D1)
+  # dbg_text = "arbitrary: %s\nD1: %s\nD2: %s" % (arbitrary, D1, D2)
+  x_2D = D1[0] * dx + D1[1] * dy + D1[2] * dz
+  y_2D = D2[0] * dx + D2[1] * dy + D2[2] * dz
+  if not x_2D and not y_2D: return
+  angle = atan2(x_2D, y_2D)
+  # dbg_text = "2D: %s %s\nangle: %s" % (round(x_2D, 5), round(y_2D, 5), round(angle, 5))
+  return angle
+
+
+
+def skew_symmetric_matrix(normal):
+  # """Строит кососимметричную матрицу из вектора normal = (nx, ny, nz)."""
+  nx, ny, nz = normal
+  return (
+    0, -nz, ny, 0,
+    nz, 0, -nx, 0,
+    -ny, nx, 0, 0,
+    0, 0, 0, 0, # изначально я 15-ым элементом сделал 1, что привело к уменьшению всего уровня при вращении по часовой стрелке и увеличению против... Так нельзя делать было ;'-}
+  )._a_float
+
+def Rodrigues(normal, angle_delta):
+  # Rodrigues' Rotation Formula: R = I + sin(theta) * K + (1 - cos(theta)) * K^2
+  K = skew_symmetric_matrix(normal)
+  K2 = FLOAT.new_array(16)
+  multiplyMM(K2, 0, K, 0, K, 0)
+  si = sin(angle_delta)
+  co = 1 - cos(angle_delta)
+  return (identity_mat[i] + si * K[i] + co * K2[i] for i in range(16))._a_float
+
+def inv_Rodrigues(matrix, normal):
+  # Вычисление cos(theta)
+  # trace(R) = R[0][0] + R[1][1] + R[2][2]
+  trace_R = matrix[0] + matrix[5] + matrix[10]
+  cos_theta = (trace_R - 1.0) / 2.0
+  cos_theta = max(-1.0, min(1.0, cos_theta))
+
+  # Вычисление sin(theta)
+  # sin(theta) = (N_x * (R[2][1] - R[1][2]) + N_y * (R[0][2] - R[2][0]) + N_z * (R[1][0] - R[0][1])) / 2.0
+  nx, ny, nz = normal
+  sin_theta = (
+    nx * (matrix[9] - matrix[6]) +
+    ny * (matrix[2] - matrix[8]) +
+    nz * (matrix[4] - matrix[1])
+  ) / 2.0
+
+  # if not sin_theta and not cos_theta: return
+  theta = atan2(sin_theta, cos_theta)
+  return theta
+
+def rotate_around_point(rot_mat, center):
+  x, y, z = center
+  mat = (
+    1, 0, 0, 0,
+    0, 1, 0, 0,
+    0, 0, 1, 0,
+    x, y, z, 1,
+  )._a_float
+  multiplyMM(mat, 0, mat, 0, rot_mat, 0)
+  translateM(mat, 0, -x, -y, -z)
+  return mat
+
+def rotate_vector_without_position(mat4, vec3):
+  copy = mat4._a_float
+  copy[3] = copy[7] = copy[11] = copy[12] = copy[13] = copy[14] = 0
+  copy[15] = 1
+  vec4 = (*vec3, 1)._a_float
+  multiplyMV(vec4, 0, copy, 0, vec4, 0)
+  return vec4[:3] # vec4[3] всегда будет = 1
+
+  #global dbg_text; dbg_text = "..."

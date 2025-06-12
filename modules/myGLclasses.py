@@ -34,6 +34,7 @@ class Model:
     if printer: print2("✅ OK buffers:", VBO, IBO, "(%s, %s words)" % sizes)
     self.data = VBO, IBO, IBOdata.capacity(), shaderProgram, shaderProgram.renderer
     self.matrix = None
+    self.inv = FLOAT.new_array(16) # memory buffer
 
   def recalc(self, mat):
     self.matrix = mat
@@ -51,7 +52,7 @@ class Model:
       location = shaderProgram.location
       if type(location) is tuple:
         location, location2 = location
-        inv = FLOAT.new_array(16)
+        inv = self.inv
         invertM(inv, 0, mat, 0)
         glUniformMatrix4fv(location2, 1, True, inv, 0)
       glUniformMatrix4fv(location, 1, False, mat, 0)
@@ -80,12 +81,13 @@ class TranslateModel:
     self.draw = model.draw
     self.delete = model.delete
     # self.setColor = model.setColor
+    self.tMat = FLOAT.new_array(16) # memory buffer
 
   def recalc(self, mat):
     self.mat = mat
     self.update()
   def update(self):
-    tMat = FLOAT.new_array(16)
+    tMat = self.tMat
     x, y, z = self.translate
     translateM2(tMat, 0, self.mat, 0, x, y, z)
     self.model.recalc(tMat)
@@ -107,12 +109,13 @@ class ScaleModel:
     self.draw = model.draw
     self.delete = model.delete
     # self.setColor = model.setColor
+    self.sMat = FLOAT.new_array(16) # memory buffer
 
   def recalc(self, mat):
     self.mat = mat
     self.update()
   def update(self):
-    sMat = FLOAT.new_array(16)
+    sMat = self.sMat
     x, y, z = self.scale
     scaleM2(sMat, 0, self.mat, 0, x, y, z)
     self.model.recalc(sMat)
@@ -168,15 +171,16 @@ class MatrixModel:
     self.draw = model.draw
     self.delete = model.delete
     # self.setColor = model.setColor
+    self.mMat = FLOAT.new_array(16) # memory buffer
 
   def recalc(self, mat):
     self.mat = mat
     self.update()
 
   def update(self):
-    sMat = FLOAT.new_array(16)
-    multiplyMM(sMat, 0, self.mat, 0, self.matrix, 0)
-    self.model.recalc(sMat)
+    mMat = self.mMat
+    multiplyMM(mMat, 0, self.mat, 0, self.matrix, 0)
+    self.model.recalc(mMat)
   def update2(self, matrix):
     self.matrix = matrix
     try: self.update()
