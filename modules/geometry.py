@@ -281,6 +281,7 @@ def make_arrow(color1, color2, color3, rounded = False):
 
 
 class ArrowedStar:
+  type = "ArrowedStar"
   def cb(self, delta_vec):
     prev_xy = None
     def handler(x, y):
@@ -336,11 +337,9 @@ class ArrowedStar:
 
     star = UnionModel((arrow_X, arrow_Y, arrow_Z, arrow_mX, arrow_mY, arrow_mZ))
     scaled = ScaleModel(star, (1, 1, 1))
-    translated = TranslateModel(scaled, (0, 3, -3.5))
+    translated = TranslateModel(scaled, (0, 0, 0))
 
     self.arrow = arrow = translated
-    arrow.recalc(identity_mat)
-    self.draw = arrow.draw
     self.get_pos = lambda: translated.translate
 
     self.set_scale = scaled.update2
@@ -352,9 +351,13 @@ class ArrowedStar:
       mat = scaled.mat
       L = lengthVec(cx - mat[12], cy - mat[13], cz - mat[14])
       L /= 4
-      L = 1
       self.set_scale((L, L, L))
     self.camMoveEvent = camMoveEvent
+
+    arrow.recalc(identity_mat)
+    self.draw = arrow.draw
+    self.recalc = arrow.recalc
+    self.delete = arrow.delete
 
   def use(self):
     self.renderer.camMoveEvent = self.camMoveEvent
@@ -362,6 +365,7 @@ class ArrowedStar:
 
 
 class RotationStar:
+  type = "RotationStar"
   def cb(self, orig_normal):
     prev_xy = None
     def handler(x, y):
@@ -436,11 +440,9 @@ class RotationStar:
 
     star = UnionModel((arrow_X, arrow_X2, arrow_X3, arrow_X4, arrow_Y, arrow_Y2, arrow_Y3, arrow_Y4, arrow_Z, arrow_Z2, arrow_Z3, arrow_Z4))
     scaled = ScaleModel(star, (1, 1, 1))
-    translated = TranslateModel(scaled, (0, 3, -3.5))
+    translated = TranslateModel(scaled, (0, 0, 0))
 
     self.arrow = arrow = translated
-    arrow.recalc(identity_mat)
-    self.draw = arrow.draw
     self.get_pos = lambda: translated.translate
 
     self.set_scale = scaled.update2
@@ -452,9 +454,13 @@ class RotationStar:
       mat = scaled.mat
       L = lengthVec(cx - mat[12], cy - mat[13], cz - mat[14])
       L /= 4
-      L = 1
       self.set_scale((L, L, L))
     self.camMoveEvent = camMoveEvent
+
+    arrow.recalc(identity_mat)
+    self.draw = arrow.draw
+    self.recalc = arrow.recalc
+    self.delete = arrow.delete
 
   def use(self):
     self.renderer.camMoveEvent = self.camMoveEvent

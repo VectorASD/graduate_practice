@@ -627,6 +627,7 @@ void main() {
     self.printer = False # Настройка печати здесь!
     self.up = 0
     self.dir = 0
+    self.visible = True
 
   def setUp(self, up): self.up = up
   def setDirection(self, dir): self.dir = dir
@@ -675,6 +676,7 @@ void main() {
     self.modelPositions.pop(id)
 
   def draw(self, aspect, customModels = None, disableDepthTest = True):
+    if not self.visible: return
     self.aspect = aspect
 
     if disableDepthTest: glDisable(GL_DEPTH_TEST)
@@ -693,6 +695,7 @@ void main() {
     glEnable(GL_CULL_FACE)
 
   def checkPosition(self, x, y):
+    if not self.visible: return -1
     # x и y от 0 до 1
     aspect = self.aspect
     yDown = (y - (1 - aspect)) / aspect
@@ -836,13 +839,20 @@ class CameraMotor:
     self.viewM = FLOAT.new_array(16)
     self.VPmatrix = FLOAT.new_array(16)
     self.camera = 0, 0, 0
-    self.rotate = 180, 0, 0
     self.WH_ratio = 1
-    self.size = 640, 640
+    self.size = 512, 512
     self.light = 0, 0, 0
     self.light_source = True
+
+    # для recalc
+    self.rotate = 180, 0, 0
+
+    # для recalc2
+    self.lookAt = 0, 0, 0 # center
+    self.up = 0, 1, 0
+
   def recalc(self):
-    camera = camX, camY, camZ = self.camera
+    camX, camY, camZ = self.camera
     yaw, pitch, roll = self.rotate
     projectionM = self.projectionM
     viewM = self.viewM
@@ -852,6 +862,16 @@ class CameraMotor:
     perspectiveM(projectionM, 0, 90, self.WH_ratio, 0.01, 1000000)
     translateM2(viewM, 0, q2.toMatrix(), 0, -camX, -camY, -camZ)
     multiplyMM(self.VPmatrix, 0, projectionM, 0, viewM, 0)
+
+  def recalc2(self):
+    projectionM = self.projectionM
+    viewM = self.viewM
+
+    perspectiveM(projectionM, 0, 90, self.WH_ratio, 0.01, 1000000)
+    setLookAtM(viewM, 0, *self.camera, *self.lookAt, *self.up)
+    multiplyMM(self.VPmatrix, 0, projectionM, 0, viewM, 0)
+
+
 
 icon_motor_sun = CameraMotor()
 icon_motor_sun.camera = 0.8, 1.1, -0.8
@@ -896,7 +916,7 @@ def skyBoxLoader(gridProgram, indexes, flipY = False, dbg = False):
 
   return skybox
 
-def iconGenerator(model, renderer, camera_motor):
+def iconGenerator(model, custom_draw, camera_motor, misc = None):
   CM = camera_motor
   with FBO_layer(CM.size, True, GL_LINEAR) as fbo:
     texture = fbo[1]
@@ -906,7 +926,8 @@ def iconGenerator(model, renderer, camera_motor):
     glEnable(GL_CULL_FACE)
     glEnable(GL_DEPTH_TEST)
     model.recalc(identity_mat)
-    renderer.noPBR.custom_draw(model, CM.camera, CM.light, CM.VPmatrix, CM.light_source)
+    # renderer.noPBR.custom_draw(model, CM.camera, CM.light, CM.VPmatrix, CM.light_source)
+    custom_draw(model, CM, misc)
   # global dbgTextures
   # dbgTextures = dbgTextures[0], texture
   return texture
@@ -1046,8 +1067,10 @@ void main() {
     mat = FLOAT.new_array(16)
     mat2 = FLOAT.new_array(16)
     if cells:
-      scaleM2(mat, 0, identity_mat, 0, 1/cells, WH_ratio/cells, 0)
-      translateM(mat, 0, 1-cells, cells-1 - 2*cells * (WH_ratio - 1), 0)
+      if type(cells) is tuple: cellsX, cellsY = cells
+      else: cellsX = cellsY = cells
+      scaleM2(mat, 0, identity_mat, 0, 1/cellsX, WH_ratio/cellsY, 0)
+      translateM(mat, 0, 1-cellsX, cellsY-1 - 2*cellsY * (WH_ratio - 1), 0)
       translateM2(mat2, 0, mat, 0, 2*x, -2*y, 0)
     else:
       translateM2(mat, 0, identity_mat, 0, x, y, 0)
@@ -1428,6 +1451,7 @@ void main() {
     self.func = func
     self.renderer = renderer
     self.location = uModelM, uInvModelM
+
   def draw(self, model):
     enableProgram(self.program)
 
@@ -1439,15 +1463,15 @@ void main() {
     glUniformMatrix4fv(self.uVPMatrix, 1, False, renderer.MVPmatrix, 0)
     glUniform1i(self.uLightSource, 0)
     model.draw()
-  def custom_draw(self, model, camera, light, VPmatrix, is_light_source = False):
+
+  def custom_draw(self, model, CM, misc): # misc -> unused
     enableProgram(self.program)
 
-    camX, camY, camZ = camera
-    lightX, lightY, lightZ = light
-    glUniform3f(self.uCamPos, camX, camY, camZ)
-    glUniform3f(self.uLightPos, lightX, lightY, lightZ)
-    glUniformMatrix4fv(self.uVPMatrix, 1, False, VPmatrix, 0)
-    glUniform1i(self.uLightSource, int(is_light_source))
+    lightX, lightY, lightZ = CM.light
+    glUniform3f(self.uCamPos, *CM.camera)
+    glUniform3f(self.uLightPos, *CM.light)
+    glUniformMatrix4fv(self.uVPMatrix, 1, False, CM.VPmatrix, 0)
+    glUniform1i(self.uLightSource, int(CM.light_source))
     model.draw()
 
 
@@ -1590,6 +1614,14 @@ void main() {
     renderer = self.renderer
     enableProgram(self.program)
     glUniformMatrix4fv(self.uVPMatrix, 1, False, renderer.MVPmatrix, 0)
+    model.draw()
+
+  def custom_draw(self, model, CM, misc): # misc -> mode
+    self.mode(misc)
+    enableProgram(self.program)
+
+    # CM.camera, CM.light, CM.VPmatrix, CM.light_source
+    glUniformMatrix4fv(self.uVPMatrix, 1, False, CM.VPmatrix, 0)
     model.draw()
 
 

@@ -65,6 +65,7 @@ priorities = (
 def ClickProvider(data):
   def click():
     renderer, x, y, z, face = data
+    if renderer.build_mode != 4: return
     # print(x, y, z, face)
     dx, dy, dz = face2delta[face]
     id = renderer.selected_tile
@@ -80,6 +81,7 @@ def ClickProvider(data):
 ChunkSX = ChunkSY = ChunkSZ = 8
 
 class Chunk:
+  type = "Chunk"
   max_faces = ChunkSX * ChunkSY * (ChunkSZ + 1) + ChunkSX * (ChunkSY + 1) * ChunkSZ + (ChunkSX + 1) * ChunkSY * ChunkSZ
   IBOdata = []
   extend = IBOdata.extend
@@ -343,6 +345,14 @@ class Chunk:
     self.remove()
     self.level.remove_chunk(self.my_pos)
 
+  def clear(self):
+    self.remove()
+    Ra = range(ChunkSX)
+    for mat in self.data:
+      for row in mat:
+        for x in Ra: row[x] = 0
+    self.dirty = True
+
   def pack(self, file):
     file.pickle(self.my_pos)
     write = file.write
@@ -363,6 +373,7 @@ AirChunk = Chunk(None, None)
 
 
 class Level:
+  type = "Level"
   def __init__(self, path):
     self.chunks = {}
     self.mat = None
@@ -441,6 +452,11 @@ class Level:
       for x in range(3):
         self.setblock(x, 0, z, 8 if x == 1 and z == 1 else 1)
 
+  def delete(self):
+    for chunk in self.chunks.values():
+      chunk.remove()
+    self.chunks.clear()
+
   # пока временная мера просто всё подряд без структурирования поместить в файл
 
   def pack(self, file):
@@ -458,10 +474,14 @@ class Level:
     self.upd_bounding()
 
   def save(self):
+    assert self.path, "Not savable"
     with open(self.path, "wb") as file:
       self.pack(file)
 
   def load(self):
+    if not self.path:
+      self.default()
+      return
     with open(self.path, "rb") as file:
       self.unpack(file)
 
@@ -482,27 +502,72 @@ class Level:
       self.choose()
 
   def choose(self):
-    arrows = self.renderer.arrows
-    x, y, z = self.center
-    arrows.set_pos(((x + .5) * ChunkSX, (y + .5) * ChunkSY, (z + .5) * ChunkSZ))
-
     self.renderer.choosed_level = self
+
+    arrow = self.renderer.arrow
+    if arrow is None: return
+
+    x, y, z = self.center
+    arrow.set_pos(((x + .5) * ChunkSX, (y + .5) * ChunkSY, (z + .5) * ChunkSZ))
+    arrow.set_mat(self.matrix)
+    arrow.use()
 
   def move(self, x, y, z):
     mat = self.matrix
     translateM2(mat, 0, mat, 0, x, y, z)
-    self.renderer.arrows.set_mat(mat)
+    self.renderer.arrow.set_mat(mat)
     self.update()
 
   def rotate(self, rot_mat):
     mat = self.matrix
     multiplyMM(mat, 0, mat, 0, rot_mat, 0)
-    self.renderer.arrows.set_mat(mat)
+    self.renderer.arrow.set_mat(mat)
     self.update()
 
 
 
 level = Level("/sdcard/TEST.chunk")
+
+def make_icons(renderer):
+  icon_level = Level(None)
+
+  icon_motor = CameraMotor()
+  icon_motor.camera = 0.7, 1.1, -0.7
+  icon_motor.rotate = 135, -45, 0
+  icon_motor.recalc()
+
+  IC_arrow = CameraMotor()
+  IC_arrow.camera = 0.8, 1.1, 0
+  IC_arrow.up = 0, 1, 0.5
+  IC_arrow.recalc2()
+
+  d = 1.5
+  IC_level = CameraMotor()
+  IC_level.lookAt = 1.3, 0, 1
+  IC_level.camera = 1.3 - d, d, 1 + d
+  IC_level.recalc2()
+
+  draw = renderer.colorama.custom_draw
+  icon_level.renderer = renderer
+  icon_level.recalc(identity_mat)
+  textured_icon_level = TexturedModel(icon_level, renderer.atlas)
+
+  a = iconGenerator(textured_icon_level, draw, IC_level, 0)
+  b = iconGenerator(renderer.arrows[0], draw, icon_motor, 2)
+  icon_motor.camera = 0.8, 1.1, -0.8
+  icon_motor.recalc()  
+  c = iconGenerator(renderer.arrows[1], draw, icon_motor, 2)
+  d = iconGenerator(renderer.arrows[0], draw, IC_arrow, 2)
+
+  chunk = icon_level.getchunk(0, 0, 0)
+  chunk.clear()
+  chunk.setblock(0, 0, 0, 11)
+  IC_level.lookAt = 0.5, 0.3, 0.5
+  IC_level.camera = 1.1, 1.1, 1.4
+  IC_level.recalc2()
+
+  e = iconGenerator(textured_icon_level, draw, IC_level, 0)
+  return a, b, c, d, e
 
 
 
@@ -549,6 +614,7 @@ class myRenderer:
     # Editor
     self.selected_tile = 1
     self.choosed_level = None
+    self.build_mode = 1
 
   def fps(self):
     T = time()
@@ -591,6 +657,7 @@ class myRenderer:
     self.time, self.td = time(), 0
     self.clickHandlerQueue.clear()
 
+
     # основные настройки по умолчанию
 
     # glClearColor(0.9, 0.95, 1, 0)
@@ -598,12 +665,14 @@ class myRenderer:
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     # glActiveTexture(GL_TEXTURE0) и так по умолчанию
 
+
     # матрицы
 
     self.viewM       = FLOAT.new_array(16)
     self.projectionM = FLOAT.new_array(16)
     self.MVPmatrix   = FLOAT.new_array(16)
     self.VPmatrix    = FLOAT.new_array(16)
+
 
     # все негенерированные (из ресурсника) текстуры в одном месте
 
@@ -634,6 +703,7 @@ class myRenderer:
     )
     tiles = tuple(map(newTexture3, tiles))
 
+
     # все шейдерные программы в одном месте
 
     self.program = firstProgram = FirstProgram(self)
@@ -658,27 +728,24 @@ class myRenderer:
 
     self.gridProgram2 = gridProgram2 = d2textureProgram(atlas, (4, 4), self)
 
-    # настройка шейдерных программ
-
-    gridProgram.setUp(0.25)
-    gridProgram.add(160, 0.25, 5.5,  8, 1, lambda: 1 in self.eventN)
-    gridProgram.add(142, 0.25, 6.75, 8, 2, lambda: 2 in self.eventN)
-    gridProgram.add(45,  6.75, 6.75, 8, 3, lambda: 3 in self.eventN)
-
-    gridProgram2.setDirection(1)
-
-    for i, id in enumerate(ids_for_build):
-      y, x = divmod(i, 4)
-      v, u = divmod(id, 4)
-      # пока в моём python НЕ сохраняются состояния конкретно текущей итерации for для scope'ов
-      def add(id):
-        func = lambda: self.selected_tile != id
-        gridProgram2.add(15 - (v << 2 | (3 - u)), 5 + 1.25 * x, 0.25 + 1.25 * y, 10, i + 4, func)
-      add(id)
-
-    self.currentSkybox = self.skyboxes[self.skyboxN]
 
     # загрузка моделей
+
+    self.arrows = (
+      ArrowedStar(self),
+      RotationStar(self),
+    )
+
+    icons = make_icons(self)
+    dbgTextures += icons
+
+    combine = TextureChain(self)
+    for i, icon in enumerate(icons):
+      y, x = divmod(i, 4)
+      combine.add_texture(icon, x, y, (4, 2))
+    self.icons = icons = combine.draw_to_texture(1024, 512, 1, GL_LINEAR)
+    dbgTextures += (icons,)
+    self.gridProgram3 = gridProgram3 = d2textureProgram(icons, (4, 2), self)
 
     triangles, cube, sphere = figures(firstProgram)
     fboTex = lambda: self.FBO[1]
@@ -687,15 +754,47 @@ class myRenderer:
       TranslateModel(NoCullFaceModel(triangles), (0, 0, -7.5)),
       TexturedModel(TranslateModel(ScaleModel(cube, (0.5, 1, 0.5)), (2.5, 0, -7.5)), fboTex),
       *(
-      	  TexturedModel(TranslateModel(ScaleModel(cube.clone(), (1, 1, 0.5)), (0.5 - 2.5 * i, 0, -7.5)), dbg)
+      	  TexturedModel(TranslateModel(ScaleModel(cube.clone(), (1, 0.5 if i == 7 else 1, 0.5)), (0.5 - 2.5 * i, 0, -7.5)), dbg)
       	  for i, dbg in enumerate(dbgTextures)
       ),
       TranslateModel(sphere, (0, 3, -7.5)),
     ))
 
-    #self.arrows = ArrowedStar(self)
-    self.arrows = RotationStar(self)
     self.marker = TranslateModel(ScaleModel(sphere.clone(), (0.2, 0.2, 0.2)), (0, 0, 0))
+
+
+    # настройка шейдерных программ
+
+    gridProgram.setUp(0.25)
+    gridProgram.add(160, 0.25, 5.5,  8, 1, lambda: 1 in self.eventN)
+    gridProgram.add(142, 0.25, 6.75, 8, 2, lambda: 2 in self.eventN)
+    gridProgram.add(45,  6.75, 6.75, 8, 3, lambda: 3 in self.eventN)
+
+    gridProgram2.setUp(0.25)
+    gridProgram2.setDirection(1)
+
+    for i, id in enumerate(ids_for_build):
+      y, x = divmod(i, 4)
+      v, u = divmod(id, 4)
+      # пока в моём python НЕ сохраняются состояния конкретно текущей итерации for для scope'ов
+      def add(id):
+        func = lambda: self.selected_tile != id
+        gridProgram2.add(15 - (v << 2 | (3 - u)), 5 + 1.25 * x, 1.5 + 1.25 * y, 10, i + 4, func)
+      add(id)
+
+    gridProgram3.setUp(0.25)
+    gridProgram3.setDirection(1)
+
+    shift = 4 + len(ids_for_build)
+    for i in range(5):
+      def add(id):
+        func = lambda: self.build_mode != id
+        gridProgram3.add((id + 4) % 8, 3.75 + 1.25 * id, 0.25, 10, id + shift, func, False, True)
+      add(i)
+
+    self.currentSkybox = self.skyboxes[self.skyboxN]
+    self.apply_build_mode()
+
 
     # первый сигнал перерасчёта матриц модели во всей иерархии моделей
 
@@ -727,6 +826,17 @@ class myRenderer:
     self.updMVP = True
     self.forward = q.rotatedVector(0, 0, -1)
     self.camMoveEvent()
+
+  def apply_build_mode(self):
+    id = self.build_mode
+    self.gridProgram2.visible = id == 4
+    match id:
+      case 1 | 3: arrow_id = 0
+      case 2: arrow_id = 1
+      case _: arrow_id = -1
+    self.arrow = self.arrows[arrow_id] if arrow_id >= 0 else None
+    level = self.choosed_level
+    if level is not None: level.choose()
 
 
 
@@ -785,12 +895,14 @@ class myRenderer:
     glBindTexture(GL_TEXTURE_2D, self.atlas)
     self.colorama.draw(level)
 
-    self.colorama.mode(2)
-    self.colorama.draw(self.arrows)
+    if self.arrow:
+      self.colorama.mode(2)
+      self.colorama.draw(self.arrow)
 
     # GUI
     self.gridProgram.draw(self.WH_ratio)
     self.gridProgram2.draw(self.WH_ratio)
+    self.gridProgram3.draw(self.WH_ratio)
     self.glyphs.draw(self.WH_ratio)
 
   def drawColorDimension(self, gui = False):
@@ -805,13 +917,15 @@ class myRenderer:
     self.colorama.mode(1)
     self.colorama.draw(level)
 
-    self.colorama.mode(3)
-    self.colorama.draw(self.arrows)
+    if self.arrow:
+      self.colorama.mode(3)
+      self.colorama.draw(self.arrow)
 
     # GUI
     if gui:
       self.gridProgram.draw(self.WH_ratio)
       self.gridProgram2.draw(self.WH_ratio)
+      self.gridProgram3.draw(self.WH_ratio)
       self.glyphs.draw(self.WH_ratio)
 
   def movedDrawColorDimension(self):
@@ -822,8 +936,9 @@ class myRenderer:
     glEnable(GL_DEPTH_TEST)
     glDisable(GL_BLEND)
 
-    self.colorama.mode(3)
-    self.colorama.draw(self.arrows)
+    if self.arrow:
+      self.colorama.mode(3)
+      self.colorama.draw(self.arrow)
 
   def movedReadPixel(self, x, y):
     def handler():
@@ -914,20 +1029,28 @@ class myRenderer:
     y /= self.H
     result = self.gridProgram.checkPosition(x, y)
     if result != -1: return result
-    return self.gridProgram2.checkPosition(x, y)
+    result = self.gridProgram2.checkPosition(x, y)
+    if result != -1: return result
+    return self.gridProgram3.checkPosition(x, y)
 
   def click(self, x, y, click_td):
     if not self.ready2: return
     if click_td > 0.5: return
     t = self.getTByPosition(x, y)
+    shift = 4 + len(ids_for_build)
+    print("T:", t)
     if t == -1:
       self.clickHandlerQueue.append((x, y))
     elif t == 3:
       self.skyboxN = N = (self.skyboxN + 1) % len(self.skyboxes)
       self.currentSkybox = self.skyboxes[N]
-    elif t in range(4, 13):
+    elif t in range(4, shift):
       id = ids_for_build[t - 4]
       self.selected_tile = id
+    elif t in range(shift, shift + 5):
+      id = t - shift
+      self.build_mode = id
+      self.apply_build_mode()
     # print("🐾 click:", x, y, t)
 
   def eventHandler(self):
