@@ -286,6 +286,8 @@ class ArrowedStar:
     prev_xy = None
     def handler(x, y):
       nonlocal prev_xy
+      global dbg_text
+
       if prev_xy is None:
         prev_xy = x, y
         return
@@ -309,19 +311,25 @@ class ArrowedStar:
       t0 = find_closest_point_on_line1(star, delta, renderer.camera, unprojected)
       unprojected = renderer.unproject(x, y)
       t1 = find_closest_point_on_line1(star, delta, renderer.camera, unprojected)
-      
+
+      delta_t = t1 - t0
+
+      step = 1 / 4 # шаг 1-ого текстурного пикселя
+      delta_t = (delta_t + step / 2) // step * step
+      if not delta_t: return
+
       prev_xy = x, y
       # renderer.marker.update2(pos)
-      x, y, z = star
       dx, dy, dz = orig_delta
-      t1 = t1 - t0
-      dx *= t1
-      dy *= t1
-      dz *= t1
+      dx *= delta_t
+      dy *= delta_t
+      dz *= delta_t
+      # x, y, z = star
       # self.set_pos((x + dx, y + dy, z + dz))
 
       level.move(dx, dy, dz)
       self.camMoveEvent()
+      dbg_text = "new pos:\n%.2f %.2f %.2f" % tuple(self.get_pos())
 
     return handler
 
@@ -371,7 +379,7 @@ class ArrowedStar:
     self.camMoveEvent = camMoveEvent
 
     arrow.recalc(identity_mat)
-    self._draw = arrow.draw, star
+    self.draw = arrow.draw
     self.recalc = arrow.recalc
     self.delete = arrow.delete
 
@@ -379,12 +387,6 @@ class ArrowedStar:
     self.renderer.camMoveEvent = event = self.camMoveEvent
     event()
     self.set_off(self.renderer.build_mode == 1)
-
-  def draw(self):
-    draw, star = self._draw
-    draw()
-    global dbg_text
-    dbg_text = "%.5f %.5f %.5f" % tuple(star.mat[12:15])
 
 
 
@@ -425,8 +427,18 @@ class RotationStar:
       rot_mat = rotate_around_point(rot_mat, self.get_pos2()) # не get_pos!!! ЗАРАБОТАЛО!!!!!!!!! \_^_^_/
       level.rotate(rot_mat)
 
-      reversed_angle = round(inv_Rodrigues(level.matrix, normal) / pi180, 3) % 360
-      dbg_text = "new angle: %s" % reversed_angle
+      # reversed_angle = round(inv_Rodrigues(level.matrix, normal) / pi180, 3) % 360
+      dbg_text = "new angle:\n%.3f %.3f %.3f" % reverse_rotation(level)
+
+    def reverse_rotation(level):
+      matrix = level.matrix
+      # angle_X = round(inv_Rodrigues(matrix, rotate_vector_without_position(matrix, (1, 0, 0))) / pi180, 3) % 360
+      # angle_Y = round(inv_Rodrigues(matrix, rotate_vector_without_position(matrix, (0, 1, 0))) / pi180, 3) % 360
+      # angle_Z = round(inv_Rodrigues(matrix, rotate_vector_without_position(matrix, (0, 0, 1))) / pi180, 3) % 360
+      angle_X = round(inv_Rodrigues(matrix, (1, 0, 0)) / pi180, 3) % 360
+      angle_Y = round(inv_Rodrigues(matrix, (0, 1, 0)) / pi180, 3) % 360
+      angle_Z = round(inv_Rodrigues(matrix, (0, 0, 1)) / pi180, 3) % 360
+      return angle_X, angle_Y, angle_Z
 
     return handler
 
@@ -655,8 +667,6 @@ def rotate_vector_without_position(mat4, vec3):
   multiplyMV(vec4, 0, copy, 0, vec4, 0)
   return vec4[:3] # vec4[3] всегда будет = 1
 
-  #global dbg_text; dbg_text = "..."
-
 def extract_components(mat):
   R00, R01, R02, _, R10, R11, R12, _, R20, R21, R22, _, T0, T1, T2, _ = mat
   rotate = (
@@ -671,10 +681,11 @@ def extract_components(mat):
 
 def remove_rotation(mat):
   rotate, scale, translate = extract_components(mat)
-  inv = rotate._a_float
-  invertM(inv, 0, inv, 0)
-  T = translate._a_float
+  # inv = rotate._a_float
+  # invertM(inv, 0, inv, 0)
+  # T = translate._a_float
   # multiplyMV(T, 0, inv, 0, T, 0)
+  T = translate
   return (
     scale, 0, 0, 0,
     0, scale, 0, 0,

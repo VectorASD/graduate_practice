@@ -1627,6 +1627,13 @@ void main() {
     glUniformMatrix4fv(self.uVPMatrix, 1, False, renderer.MVPmatrix, 0)
     model.draw()
 
+  def fast_draw(self, draws, mode):
+    self.mode(mode)
+    renderer = self.renderer
+    enableProgram(self.program)
+    glUniformMatrix4fv(self.uVPMatrix, 1, False, renderer.MVPmatrix, 0)
+    for draw in draws: draw()
+
   def custom_draw(self, model, CM, misc): # misc -> mode
     self.mode(misc)
     enableProgram(self.program)

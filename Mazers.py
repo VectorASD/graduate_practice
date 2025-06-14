@@ -64,8 +64,14 @@ priorities = (
 
 def ClickProvider(data):
   def click():
-    renderer, x, y, z, face = data
-    if renderer.build_mode != 4: return
+    chunk, x, y, z, face = data
+    level = chunk.level
+    renderer = level.renderer
+    mode = renderer.build_mode
+
+    if mode != 4:
+      if mode in (1, 2, 3): level.choose()
+      return
     # print(x, y, z, face)
     dx, dy, dz = face2delta[face]
     id = renderer.selected_tile
@@ -196,7 +202,7 @@ class Chunk:
       if my_prior > priors[data[_y + 1][_z][_x] if _y < ChunkSYm1 else top_chunk[0][_z][_x]]:
         # top    / верх   (+Y)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
-        reverse[color]  = __kget_or_default(providers[(x, y, z, 0)], ClickProvider((renderer, x, y, z, 0)))
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 0)], ClickProvider((self, x, y, z, 0)))
         pos += 1
         extend(
           x,  y2, z,  u1, v1, r, g, b,
@@ -207,7 +213,7 @@ class Chunk:
       if my_prior > priors[mat[_z + 1][_x] if _z < ChunkSZm1 else south_chunk[_y][0][_x]]:
         # south  / юг     (+Z)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
-        reverse[color]  = __kget_or_default(providers[(x, y, z, 1)], ClickProvider((renderer, x, y, z, 1)))
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 1)], ClickProvider((self, x, y, z, 1)))
         pos += 1
         extend(
           x,  y2, z2, u1, v1, r, g, b,
@@ -218,7 +224,7 @@ class Chunk:
       if my_prior > priors[row[_x - 1] if _x else west_chunk[_y][_z][ChunkSXm1]]:
         # west   / запад  (-X)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
-        reverse[color]  = __kget_or_default(providers[(x, y, z, 2)], ClickProvider((renderer, x, y, z, 2)))
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 2)], ClickProvider((self, x, y, z, 2)))
         pos += 1
         extend(
           x, y2, z,  u1, v1, r, g, b,
@@ -229,7 +235,7 @@ class Chunk:
       if my_prior > priors[mat[_z - 1][_x] if _z else north_chunk[_y][ChunkSZm1][_x]]:
         # north  / север  (-Z)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
-        reverse[color]  = __kget_or_default(providers[(x, y, z, 3)], ClickProvider((renderer, x, y, z, 3)))
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 3)], ClickProvider((self, x, y, z, 3)))
         pos += 1
         extend(
           x2, y2, z, u1, v1, r, g, b,
@@ -240,7 +246,7 @@ class Chunk:
       if my_prior > priors[row[_x + 1] if _x < ChunkSXm1 else east_chunk[_y][_z][0]]:
         # east   / восток (+X)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
-        reverse[color]  = __kget_or_default(providers[(x, y, z, 4)], ClickProvider((renderer, x, y, z, 4)))
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 4)], ClickProvider((self, x, y, z, 4)))
         pos += 1
         extend(
           x2, y2, z2, u1, v1, r, g, b,
@@ -251,7 +257,7 @@ class Chunk:
       if my_prior > priors[data[_y - 1][_z][_x] if _y else bottom_chunk[ChunkSYm1][_z][_x]]:
         # bottom / дно    (-Y)
         r, g, b = color = __iget_or_default(colors[pos], next_color())
-        reverse[color]  = __kget_or_default(providers[(x, y, z, 5)], ClickProvider((renderer, x, y, z, 5)))
+        reverse[color]  = __kget_or_default(providers[(x, y, z, 5)], ClickProvider((self, x, y, z, 5)))
         pos += 1
         extend(
           x,  y, z2, u1, v1, r, g, b,
@@ -499,11 +505,17 @@ class Level:
 
     renderer = self.renderer
     if renderer and self is renderer.choosed_level:
-      self.choose()
+      self.update_arrow()
 
   def choose(self):
-    self.renderer.choosed_level = self
+    renderer = self.renderer
+    if self is renderer.choosed_level:
+      renderer.choosed_level = None
+    else:
+      renderer.choosed_level = self
+      self.update_arrow()
 
+  def update_arrow(self):
     arrow = self.renderer.arrow
     if arrow is None: return
 
@@ -526,7 +538,60 @@ class Level:
 
 
 
-level = Level("/sdcard/TEST.chunk")
+class World:
+  type = "World"
+  def __init__(self, dir_path):
+    self.levels = []
+    self.renderer = None
+
+    path = File(dir_path)
+    assert path.exists(), "Не существует данного пути: %s" % path
+    assert path.isdir(), "Это не дирректория: %s" % path
+
+    add = self.add
+    for file in path.listdir():
+      if not file.isfile() or not file.basename().endswith(".chunk"): continue
+      add(Level(file.name()))
+    self.update()
+
+  def add(self, level, upd = False):
+    self.levels.append(level)
+    if upd:
+      self.update()
+      renderer = self.renderer
+      assert renderer is not None
+      level.renderer = renderer
+
+  def remove(self, level):
+    self.levels.pop(level)
+    self.update()
+
+  def update(self):
+    self.draws    = tuple(level.draw    for level in self.levels)
+    self.recalcs  = tuple(level.recalc  for level in self.levels)
+    self.restarts = tuple(level.restart for level in self.levels)
+
+  def recalc(self, mat):
+    for recalc in self.recalcs: recalc(mat)
+
+  def draw(self, mode):
+    renderer = self.renderer
+    glBindTexture(GL_TEXTURE_2D, renderer.atlas)
+    renderer.colorama.fast_draw(self.draws, mode)
+
+  def restart(self):
+    for restart in self.restarts: restart()
+
+  def set_renderer(self, renderer):
+    self.renderer = renderer
+    for level in self.levels: level.renderer = renderer
+
+
+
+world = World("/sdcard/World")
+
+level = Level("/sdcard/World/TEST.chunk")
+marker_level = Level(None)
 
 def make_icons(renderer):
   icon_level = Level(None)
@@ -800,9 +865,8 @@ class myRenderer:
 
     self.calcViewMatrix()
 
-    level.renderer = self
-    level.recalc(identity_mat)
-    level.choose()
+    world.set_renderer(self)
+    world.recalc(identity_mat)
 
     self.ready = True
 
@@ -836,7 +900,7 @@ class myRenderer:
       case _: arrow_id = -1
     self.arrow = self.arrows[arrow_id] if arrow_id >= 0 else None
     level = self.choosed_level
-    if level is not None: level.choose()
+    if level is not None: level.update_arrow()
 
 
 
@@ -891,11 +955,9 @@ class myRenderer:
     self.marker.draw()
 
     # Модели
-    self.colorama.mode(0)
-    glBindTexture(GL_TEXTURE_2D, self.atlas)
-    self.colorama.draw(level)
+    world.draw(0)
 
-    if self.arrow:
+    if self.arrow and self.choosed_level is not None:
       self.colorama.mode(2)
       self.colorama.draw(self.arrow)
 
@@ -914,10 +976,9 @@ class myRenderer:
     glDisable(GL_BLEND)
 
     # Модели
-    self.colorama.mode(1)
-    self.colorama.draw(level)
+    world.draw(1)
 
-    if self.arrow:
+    if gui and self.arrow and self.choosed_level is not None:
       self.colorama.mode(3)
       self.colorama.draw(self.arrow)
 
@@ -1038,7 +1099,6 @@ class myRenderer:
     if click_td > 0.5: return
     t = self.getTByPosition(x, y)
     shift = 4 + len(ids_for_build)
-    print("T:", t)
     if t == -1:
       self.clickHandlerQueue.append((x, y))
     elif t == 3:
@@ -1096,7 +1156,7 @@ class myRenderer:
     self.FBO = self.FBO2 = None
     SkyBox.restart()
     self.findNearestPlanet = lambda: None
-    level.restart()
+    world.restart()
 
   reverse = {
     "cr": onSurfaceCreated,
