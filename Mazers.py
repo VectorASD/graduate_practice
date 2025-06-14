@@ -466,16 +466,20 @@ class Level:
   # пока временная мера просто всё подряд без структурирования поместить в файл
 
   def pack(self, file):
+    file.pickle(tuple(self.matrix))
     for chunk in self.chunks.values():
       chunk.pack(file)
 
   def unpack(self, file):
     chunks = self.chunks
-    for chunk in tuple(chunks.values()): chunk.delete()
+    for chunk in tuple(chunks.values()):
+      chunk.delete()
+
+    self.matrix = file.unpickle()._a_float
     while not file.eof():
       chunk = Chunk(self, None)
       chunk.unpack(file)
-      print("LOADED:", chunk.my_pos)
+      # print("LOADED:", chunk.my_pos)
       chunks[chunk.my_pos] = chunk
     self.upd_bounding()
 
@@ -529,12 +533,14 @@ class Level:
     translateM2(mat, 0, mat, 0, x, y, z)
     self.renderer.arrow.set_mat(mat)
     self.update()
+    self.save_time = time() + 3
 
   def rotate(self, rot_mat):
     mat = self.matrix
     multiplyMM(mat, 0, mat, 0, rot_mat, 0)
     self.renderer.arrow.set_mat(mat)
     self.update()
+    self.save_time = time() + 3
 
 
 
@@ -550,7 +556,7 @@ class World:
 
     add = self.add
     for file in path.listdir():
-      if not file.isfile() or not file.basename().endswith(".chunk"): continue
+      if not file.isfile() or not file.basename().endswith(".level"): continue
       add(Level(file.name()))
     self.update()
 
@@ -589,8 +595,6 @@ class World:
 
 
 world = World("/sdcard/World")
-
-level = Level("/sdcard/World/TEST.chunk")
 marker_level = Level(None)
 
 def make_icons(renderer):
@@ -647,7 +651,7 @@ class myRenderer:
     self.yaw, self.pitch, self.roll = 0, -45.01, 0
     self.camX, self.camY, self.camZ = 0, 3.5, 3.5
     self.camera = 0, 3.5, 3.5
-    self.CW_mode = False
+    # self.CW_mode = False
     self.skyboxN = 0
 
     # FPS
@@ -656,7 +660,7 @@ class myRenderer:
     self.frame_pos = 0
     self.frame_arr = []
     self.fpsS      = "?"
-    self.prev_dbg_text = None
+    self.prev_text = None
 
     # Window
     self.W = self.H = self.WH_ratio = -1
@@ -683,12 +687,7 @@ class myRenderer:
 
   def fps(self):
     T = time()
-    arr = self.frame_arr
-    upd = False
-
-    if self.prev_dbg_text != dbg_text:
-      self.prev_dbg_text = dbg_text
-      upd = True
+    arr = self.frame_arr   
 
     if T >= self.last_time:
       self.last_time = T + 0.1
@@ -702,16 +701,28 @@ class myRenderer:
       self.fpsS = sum(arr) * 10 // len(arr)
       upd = True
 
-    if upd:
-      if self.CW_mode:
-        text = "fps: %s\ncam: %.2f %.2f %.2f\nrot: %.2f %.2f %.2f" % (self.fpsS, self.camX, self.camY, self.camZ, self.yaw, self.pitch, self.roll)
-      else:
-        text = "fps: %s\nchunks: %s%s" % (self.fpsS, len(level.chunks), "\nsaved" if level.save_time is None else "")
-      if dbg_text is not None:
-        text = "%s\n%s" % (text, dbg_text)
-      self.glyphs.setText(self.fpsText, text, self.W / 16)
+    self.update_text()
 
     return self.fpsS
+
+  def update_text(self):
+    # if self.CW_mode:
+    #   text = "fps: %s\ncam: %.2f %.2f %.2f\nrot: %.2f %.2f %.2f" % (self.fpsS, self.camX, self.camY, self.camZ, self.yaw, self.pitch, self.roll)
+    level = self.choosed_level
+
+    text = []; append = text.append
+    append("fps: %s" % self.fpsS)
+    if level is None:
+      append("Выберите уровень")
+    else:
+      append("chunks: %s" % len(level.chunks))
+      if level.save_time is None: append("saved")
+    if dbg_text is not None: append(dbg_text)
+    text = "\n".join(text)
+
+    if self.prev_text != text:
+      self.prev_text = text
+      self.glyphs.setText(self.fpsText, text, self.W / 16)
 
 
 
