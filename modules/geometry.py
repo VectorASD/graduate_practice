@@ -282,7 +282,7 @@ def make_arrow(color1, color2, color3, rounded = False):
 
 class ArrowedStar:
   type = "ArrowedStar"
-  def cb(self, delta_vec):
+  def cb(self, _orig_delta):
     prev_xy = None
     def handler(x, y):
       nonlocal prev_xy
@@ -292,22 +292,36 @@ class ArrowedStar:
 
       renderer = self.renderer
       star = self.get_pos()
+
+      level = renderer.choosed_level
+      if level is None: return
+
+      if renderer.build_mode == 1:
+        delta = _orig_delta
+        inv = FLOAT.new_array(16)
+        invertM(inv, 0, level.matrix, 0)
+        orig_delta = rotate_vector_without_position(inv, delta)
+      else:
+        orig_delta = _orig_delta
+        delta = rotate_vector_without_position(level.matrix, orig_delta)
+
       unprojected = renderer.unproject(*prev_xy)
-      t0 = find_closest_point_on_line1(star, delta_vec, renderer.camera, unprojected)
+      t0 = find_closest_point_on_line1(star, delta, renderer.camera, unprojected)
       unprojected = renderer.unproject(x, y)
-      t1 = find_closest_point_on_line1(star, delta_vec, renderer.camera, unprojected)
+      t1 = find_closest_point_on_line1(star, delta, renderer.camera, unprojected)
       
       prev_xy = x, y
       # renderer.marker.update2(pos)
       x, y, z = star
-      dx, dy, dz = delta_vec
+      dx, dy, dz = orig_delta
       t1 = t1 - t0
       dx *= t1
       dy *= t1
       dz *= t1
       # self.set_pos((x + dx, y + dy, z + dz))
-      level = renderer.choosed_level
-      if level is not None: level.move(dx, dy, dz)
+
+      level.move(dx, dy, dz)
+      self.camMoveEvent()
 
     return handler
 
@@ -336,15 +350,17 @@ class ArrowedStar:
     arrow_Z = RotateModel(arrow_Z.clone(), (90, 0, 0))
 
     star = UnionModel((arrow_X, arrow_Y, arrow_Z, arrow_mX, arrow_mY, arrow_mZ))
-    scaled = ScaleModel(star, (1, 1, 1))
+    off_rotation = OffRotationModel(star)
+    scaled = ScaleModel(off_rotation, (1, 1, 1))
     translated = TranslateModel(scaled, (0, 0, 0))
 
     self.arrow = arrow = translated
-    self.get_pos = lambda: translated.translate
+    self.get_pos = lambda: star.mat[12:15]
 
     self.set_scale = scaled.update2
     self.set_pos = translated.update2
     self.set_mat = arrow.recalc
+    self.set_off = off_rotation.update2
 
     def camMoveEvent():
       cx, cy, cz = renderer.camera
@@ -355,12 +371,20 @@ class ArrowedStar:
     self.camMoveEvent = camMoveEvent
 
     arrow.recalc(identity_mat)
-    self.draw = arrow.draw
+    self._draw = arrow.draw, star
     self.recalc = arrow.recalc
     self.delete = arrow.delete
 
   def use(self):
-    self.renderer.camMoveEvent = self.camMoveEvent
+    self.renderer.camMoveEvent = event = self.camMoveEvent
+    event()
+    self.set_off(self.renderer.build_mode == 1)
+
+  def draw(self):
+    draw, star = self._draw
+    draw()
+    global dbg_text
+    dbg_text = "%.5f %.5f %.5f" % tuple(star.mat[12:15])
 
 
 
@@ -398,7 +422,7 @@ class RotationStar:
       prev_xy = x, y
 
       rot_mat = Rodrigues(orig_normal, angle)
-      rot_mat = rotate_around_point(rot_mat, star)
+      rot_mat = rotate_around_point(rot_mat, self.get_pos2()) # не get_pos!!! ЗАРАБОТАЛО!!!!!!!!! \_^_^_/
       level.rotate(rot_mat)
 
       reversed_angle = round(inv_Rodrigues(level.matrix, normal) / pi180, 3) % 360
@@ -443,7 +467,8 @@ class RotationStar:
     translated = TranslateModel(scaled, (0, 0, 0))
 
     self.arrow = arrow = translated
-    self.get_pos = lambda: translated.translate
+    self.get_pos = lambda: star.mat[12:15]
+    self.get_pos2 = lambda: translated.translate # только для вращения
 
     self.set_scale = scaled.update2
     self.set_pos = translated.update2
@@ -463,7 +488,8 @@ class RotationStar:
     self.delete = arrow.delete
 
   def use(self):
-    self.renderer.camMoveEvent = self.camMoveEvent
+    self.renderer.camMoveEvent = event = self.camMoveEvent
+    event()
 
 
 
@@ -630,3 +656,28 @@ def rotate_vector_without_position(mat4, vec3):
   return vec4[:3] # vec4[3] всегда будет = 1
 
   #global dbg_text; dbg_text = "..."
+
+def extract_components(mat):
+  R00, R01, R02, _, R10, R11, R12, _, R20, R21, R22, _, T0, T1, T2, _ = mat
+  rotate = (
+    R00, R01, R02, 0,
+    R10, R11, R12, 0,
+    R20, R21, R22, 0,
+    0, 0, 0, 1,
+  )
+  scale = lengthVec(R00, R10, R20) # при равномерном масштабировании
+  translate = T0, T1, T2, 1
+  return rotate, scale, translate
+
+def remove_rotation(mat):
+  rotate, scale, translate = extract_components(mat)
+  inv = rotate._a_float
+  invertM(inv, 0, inv, 0)
+  T = translate._a_float
+  # multiplyMV(T, 0, inv, 0, T, 0)
+  return (
+    scale, 0, 0, 0,
+    0, scale, 0, 0,
+    0, 0, scale, 0,
+    T[0], T[1], T[2], 1,
+  )._a_float

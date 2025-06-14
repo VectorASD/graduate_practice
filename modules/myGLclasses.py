@@ -1,6 +1,7 @@
 import myGL
 import CFrame # CFrame2mat, fromEulerAngles
 import random # shuffle
+import geometry # remove_rotation
 
 
 
@@ -80,7 +81,6 @@ class TranslateModel:
     self.translate = translate
     self.draw = model.draw
     self.delete = model.delete
-    # self.setColor = model.setColor
     self.tMat = FLOAT.new_array(16) # memory buffer
 
   def recalc(self, mat):
@@ -108,7 +108,6 @@ class ScaleModel:
     self.scale = scale
     self.draw = model.draw
     self.delete = model.delete
-    # self.setColor = model.setColor
     self.sMat = FLOAT.new_array(16) # memory buffer
 
   def recalc(self, mat):
@@ -136,7 +135,6 @@ class RotateModel:
     self.YPR = YPR
     self.draw = model.draw
     self.delete = model.delete
-    # self.setColor = model.setColor
 
   def recalc(self, mat):
     self.mat = mat
@@ -170,7 +168,6 @@ class MatrixModel:
     self.info = info
     self.draw = model.draw
     self.delete = model.delete
-    # self.setColor = model.setColor
     self.mMat = FLOAT.new_array(16) # memory buffer
 
   def recalc(self, mat):
@@ -211,9 +208,6 @@ class UnionModel:
     models = tuple(model.clone() for model in self.models)
     return UnionModel(models)
 
-  # def setColor(self, color):
-  #   for model in self.models: model.setColor(color)
-
 
 
 class TexturedModel:
@@ -223,7 +217,6 @@ class TexturedModel:
     self.textureID = textureID
     self.delete = model.delete
     self.recalc = model.recalc
-    # self.setColor = model.setColor
 
   def draw(self):
     texture = self.textureID
@@ -242,7 +235,6 @@ class NoCullFaceModel:
     self.model = model
     self.delete = model.delete
     self.recalc = model.recalc
-    # self.setColor = model.setColor
 
   def draw(self):
     glDisable(GL_CULL_FACE)
@@ -412,7 +404,6 @@ class WaitingModel:
     self.model = None
     self.draw = lambda: None
     self.needDelete = False
-    # self.saved_color = None
   def setModel(self, model):
     # print("SET MODEL:", model)
     self.model = model
@@ -433,15 +424,36 @@ class WaitingModel:
     else:
       self.recalc = model.recalc
       self.draw = model.draw
-      # self.setColor = model.setColor
-      # color = self.saved_color
-      # if color is not None: self.setColor(color)
 
   def delete(self): # если удалили модель до того, как она загрузилась :/
     self.needDelete = True
 
-  # def setColor(self, color):
-  #   self.saved_color = color
+
+
+class OffRotationModel:
+  type = "OffRotationModel"
+  def __init__(self, model, off = False):
+    self.model = model
+    self.off = off
+    self.draw = model.draw
+    self.delete = model.delete
+
+  def recalc(self, mat):
+    self.mat = mat
+    self.update()
+
+  def update(self):
+    mat = self.mat
+    if self.off:
+      mat = remove_rotation(mat)
+    self.model.recalc(mat)
+  def update2(self, off):
+    self.off = off
+    try: self.update()
+    except AttributeError: pass # если update2 вызван до recalc, то self.mat просто нет
+
+  def clone(self):
+    return OffRotationModel(self.model.clone(), self.off)
 
 
 
@@ -1337,7 +1349,6 @@ class PBR_Model:
     else: self.textures = colorMap, metalnessMap, normalMap, roughnessMap
     self.recalc = model.recalc
     self.delete = model.delete
-    # self.setColor = model.setColor
 
   def draw(self):
     pbr = PBR_Model.PBR
