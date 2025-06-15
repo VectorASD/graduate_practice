@@ -167,9 +167,10 @@ class File:
   canExecute = jFile._mw_canExecute().wrap
   lastModified = jFile._mw_lastModified().wrap
   length = jFile._mw_length().wrap
+  delete = jFile._mw_delete().wrap # опасно!
 
-  isSymbolicLink = jFiles._mw_isSymbolicLink(jPath) # min sdk 26!
-  toPath = jFile._mw_toPath().wrap # min sdk 26!
+  isSymbolicLink = jFiles._mw_isSymbolicLink(jPath) # min sdk 26! (8.0)
+  toPath = jFile._mw_toPath().wrap # min sdk 26! (8.0)
 
   def __init__(self, file):
     if type(file) is str: file = jFile(file)
@@ -186,6 +187,7 @@ class File:
     lastModified = File.lastModified(file)
     self.getmtime = lambda: lastModified() / 1000
     self.getsize = File.length(file)
+    self.remove = File.delete(file) # опасно!
 
   def __repr__(self):
     return "File:" + self.name()

@@ -424,9 +424,12 @@ class Level:
 
   def remove_chunk(self, pos):
     self.chunks.pop(pos)
-    if not self.chunks:
-      self.default()
-    self.upd_bounding()
+    if self.chunks:
+      self.upd_bounding()
+    else:
+      # self.default()
+      world.remove_level(self)
+      return
 
 
 
@@ -457,6 +460,7 @@ class Level:
     for z in range(2):
       for x in range(3):
         self.setblock(x, 0, z, 8 if x == 1 and z == 1 else 1)
+    self.save_time = None
 
   def delete(self):
     for chunk in self.chunks.values():
@@ -484,15 +488,17 @@ class Level:
     self.upd_bounding()
 
   def save(self):
-    assert self.path, "Not savable"
-    with open(self.path, "wb") as file:
+    path = self.path
+    assert path, "Not savable"
+    with open(path.name(), "wb") as file:
       self.pack(file)
 
   def load(self):
-    if not self.path:
+    path = self.path
+    if not path:
       self.default()
       return
-    with open(self.path, "rb") as file:
+    with open(path.name(), "rb") as file:
       self.unpack(file)
 
 
@@ -531,7 +537,8 @@ class Level:
   def move(self, x, y, z):
     mat = self.matrix
     translateM2(mat, 0, mat, 0, x, y, z)
-    self.renderer.arrow.set_mat(mat)
+    arrow = self.renderer.arrow
+    if arrow is not None: arrow.set_mat(mat)
     self.update()
     self.save_time = time() + 3
 
@@ -549,16 +556,19 @@ class World:
   def __init__(self, dir_path):
     self.levels = []
     self.renderer = None
+    self.mat = None
+    self.n = 0
 
-    path = File(dir_path)
+    self.path = path = File(dir_path)
     assert path.exists(), "Не существует данного пути: %s" % path
     assert path.isdir(), "Это не дирректория: %s" % path
 
     add = self.add
     for file in path.listdir():
       if not file.isfile() or not file.basename().endswith(".level"): continue
-      add(Level(file.name()))
+      add(Level(file))
     self.update()
+    self.recalc(identity_mat)
 
   def add(self, level, upd = False):
     self.levels.append(level)
@@ -567,10 +577,22 @@ class World:
       renderer = self.renderer
       assert renderer is not None
       level.renderer = renderer
+      mat = self.mat
+      if mat is not None: level.recalc(mat)
 
-  def remove(self, level):
-    self.levels.pop(level)
+  def remove_level(self, level):
+    # print("YEAH!", len(self.levels))
+    self.levels.remove(level)
+    # print("YEAH!", len(self.levels))
     self.update()
+    if level.path.remove():
+      global dbg_text
+      dbg_text = "%s\nREMOVED!" % level.path.name()
+    else:
+      dbg_text = None
+
+    self.renderer.choosed_level = None
+    self.n = 0
 
   def update(self):
     self.draws    = tuple(level.draw    for level in self.levels)
@@ -578,6 +600,7 @@ class World:
     self.restarts = tuple(level.restart for level in self.levels)
 
   def recalc(self, mat):
+    self.mat = mat
     for recalc in self.recalcs: recalc(mat)
 
   def draw(self, mode):
@@ -591,6 +614,30 @@ class World:
   def set_renderer(self, renderer):
     self.renderer = renderer
     for level in self.levels: level.renderer = renderer
+
+  def make_name(self):
+    join = self.path.join
+    n = self.n
+    while True:
+      path = join("part_%s.level" % n)
+      n += 1
+      if not path.exists(): break
+    self.n = n
+    return path
+
+  def create_level(self):
+    renderer = self.renderer
+    pos = renderer.marker_level.translate
+    level = Level(self.make_name())
+    self.add(level, True)
+    level.move(*pos)
+
+    level.save_time = None
+    level.choose()
+    renderer.set_build_mode(4)
+
+  def test_level(self):
+    print("under construction")
 
 
 
@@ -755,10 +802,12 @@ class myRenderer:
     textures       = __resource("textures.png")
     skybox_labeled = __resource("skybox_labeled.png")
     skybox_space   = __resource("skybox_space.webp")
+    misc_atlas     = __resource("misc_atlas.png")
 
     mainTextures  = newTexture2(textures)
     skyboxLabeled = newTexture2(skybox_labeled)
     skyboxSpace   = newTexture2(skybox_space)
+    miscAtlas     = newTexture2(misc_atlas)
 
     # self.mainTexture = mainTextures
 
@@ -803,6 +852,7 @@ class myRenderer:
     dbgTextures = (atlas, tiles[0])
 
     self.gridProgram2 = gridProgram2 = d2textureProgram(atlas, (4, 4), self)
+    self.gridProgram4 = gridProgram4 = d2textureProgram(miscAtlas, (2, 2), self)
 
 
     # загрузка моделей
@@ -837,6 +887,7 @@ class myRenderer:
     ))
 
     self.marker = TranslateModel(ScaleModel(sphere.clone(), (0.2, 0.2, 0.2)), (0, 0, 0))
+    self.marker_level = TranslateModel(marker_level, (-1.5, -0.5, -1))
 
 
     # настройка шейдерных программ
@@ -868,8 +919,20 @@ class myRenderer:
         gridProgram3.add((id + 4) % 8, 3.75 + 1.25 * id, 0.25, 10, id + shift, func, False, True)
       add(i)
 
+    gridProgram4.setUp(0.25)
+    gridProgram4.setDirection(1)
+    n = shift + 5
+    gridProgram4.add(0, 8.75, 1.5, 10, n, lambda: n in self.eventN)
+
     self.currentSkybox = self.skyboxes[self.skyboxN]
     self.apply_build_mode()
+
+    self.grid_programs = (
+      self.gridProgram,
+      self.gridProgram2,
+      self.gridProgram3,
+      self.gridProgram4,
+    )
 
 
     # первый сигнал перерасчёта матриц модели во всей иерархии моделей
@@ -877,7 +940,9 @@ class myRenderer:
     self.calcViewMatrix()
 
     world.set_renderer(self)
-    world.recalc(identity_mat)
+
+    marker_level.renderer = self
+    self.marker_level.recalc(identity_mat)
 
     self.ready = True
 
@@ -901,6 +966,12 @@ class myRenderer:
     self.updMVP = True
     self.forward = q.rotatedVector(0, 0, -1)
     self.camMoveEvent()
+    self.camMoveEvent2()
+
+  def set_build_mode(self, id):
+    self.build_mode = id
+    self.apply_build_mode()
+    global dbg_text; dbg_text = None
 
   def apply_build_mode(self):
     id = self.build_mode
@@ -912,6 +983,36 @@ class myRenderer:
     self.arrow = self.arrows[arrow_id] if arrow_id >= 0 else None
     level = self.choosed_level
     if level is not None: level.update_arrow()
+
+    def upd():
+      grid = self.gridProgram4
+      grid.clear()
+      n = 4 + len(ids_for_build) + 5
+      func = lambda: n in self.eventN
+      match id:
+        case 0: grid.add(0, 8.75, 1.5, 10, n, func)
+        case 1..3: pass # sparse- to packed- switch
+        case 4: grid.add(2, 8.75, 4,   10, n, func)
+    runOnGLThread(self.view, upd)
+
+    if id == 0: self.camMoveEvent2()
+
+  def camMoveEvent2(self):
+    if self.build_mode != 0: return
+
+    x, y, z = self.camera
+    dx, dy, dz = self.forward
+    L = 5
+    step = 1 / 4
+    pos = (
+      (x + dx * L - 1.5 + step / 2) // step * step,
+      (y + dy * L - 0.5 + step / 2) // step * step,
+      (z + dz * L - 1   + step / 2) // step * step,
+    )
+    self.marker_level.update2(pos)
+
+    global dbg_text
+    dbg_text = "create pos:\n%.2f %.2f %.2f" % pos
 
 
 
@@ -972,10 +1073,13 @@ class myRenderer:
       self.colorama.mode(2)
       self.colorama.draw(self.arrow)
 
+    if self.build_mode == 0:
+      self.colorama.mode(0)
+      self.colorama.draw(self.marker_level)
+
     # GUI
-    self.gridProgram.draw(self.WH_ratio)
-    self.gridProgram2.draw(self.WH_ratio)
-    self.gridProgram3.draw(self.WH_ratio)
+    for grid in self.grid_programs:
+      grid.draw(self.WH_ratio)
     self.glyphs.draw(self.WH_ratio)
 
   def drawColorDimension(self, gui = False):
@@ -995,9 +1099,8 @@ class myRenderer:
 
     # GUI
     if gui:
-      self.gridProgram.draw(self.WH_ratio)
-      self.gridProgram2.draw(self.WH_ratio)
-      self.gridProgram3.draw(self.WH_ratio)
+      for grid in self.grid_programs:
+        grid.draw(self.WH_ratio)
       self.glyphs.draw(self.WH_ratio)
 
   def movedDrawColorDimension(self):
@@ -1008,12 +1111,13 @@ class myRenderer:
     glEnable(GL_DEPTH_TEST)
     glDisable(GL_BLEND)
 
-    if self.arrow:
-      self.colorama.mode(3)
-      self.colorama.draw(self.arrow)
+    self.colorama.mode(3)
+    self.colorama.draw(self.arrow)
 
   def movedReadPixel(self, x, y):
     def handler():
+      if self.arrow is None or self.choosed_level is None: return
+
       glBindFramebuffer(GL_FRAMEBUFFER, self.FBO2[0])
 
       self.movedDrawColorDimension()
@@ -1099,17 +1203,17 @@ class myRenderer:
     if not self.ready2: return -1
     x /= self.W
     y /= self.H
-    result = self.gridProgram.checkPosition(x, y)
-    if result != -1: return result
-    result = self.gridProgram2.checkPosition(x, y)
-    if result != -1: return result
-    return self.gridProgram3.checkPosition(x, y)
+    for grid in self.grid_programs:
+      result = grid.checkPosition(x, y)
+      if result != -1: return result
+    return -1
 
   def click(self, x, y, click_td):
     if not self.ready2: return
     if click_td > 0.5: return
     t = self.getTByPosition(x, y)
     shift = 4 + len(ids_for_build)
+    n = shift + 5
     if t == -1:
       self.clickHandlerQueue.append((x, y))
     elif t == 3:
@@ -1118,10 +1222,14 @@ class myRenderer:
     elif t in range(4, shift):
       id = ids_for_build[t - 4]
       self.selected_tile = id
-    elif t in range(shift, shift + 5):
+    elif t in range(shift, n):
       id = t - shift
-      self.build_mode = id
-      self.apply_build_mode()
+      self.set_build_mode(id)
+    elif t == n:
+      match self.build_mode:
+        case 0: world.create_level()
+        case 1..3: pass # sparse- to packed- switch
+        case 4: world.test_level()
     # print("🐾 click:", x, y, t)
 
   def eventHandler(self):
@@ -1165,9 +1273,10 @@ class myRenderer:
     self.ready = self.ready2 = False
     self.W = self.H = self.WH_ratio = -1
     self.FBO = self.FBO2 = None
+
     SkyBox.restart()
-    self.findNearestPlanet = lambda: None
     world.restart()
+    marker_level.restart()
 
   reverse = {
     "cr": onSurfaceCreated,
@@ -1341,16 +1450,12 @@ def Activity():
   global rm, ctxResources
   rm = ResourceManager()
   rm.xml("main", "main.xml", main_xml)
-  #print("•", rm)
   ress = rm.release()
   ctx = ress.ctx
   ctxResources = ctx._m_getResources()
-  #print("•", ress, ctx)
 
   activityManager = ctx._m_getSystemService(ACTIVITY_SERVICE)
   config = activityManager._m_getDeviceConfigurationInfo()
-  #print("•", activityManager, config)
-  #for name in config.methods().keys(): print(name)
   vers = config._f_reqGlEsVersion
   a, b, c = vers >> 16, vers >> 8 & 255, vers & 255
   print("GL: v%s.%s.%s" % (a, b, c))

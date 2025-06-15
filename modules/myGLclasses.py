@@ -686,6 +686,10 @@ void main() {
   def remove(self, id):
     self.models.pop(id)
     self.modelPositions.pop(id)
+  def clear(self):
+    self.models.clear()
+    self.modelPositions.clear()
+    # self.model_n не имеет смысла сбрасывать
 
   def draw(self, aspect, customModels = None, disableDepthTest = True):
     if not self.visible: return
