@@ -34,33 +34,10 @@ import myGL
 import myGLclasses
 import myGLtext
 import geometry
+import levelTester
 # print("ok!", time() - T) # 0.02 s.
 
 
-
-face2delta = (
-  ( 0, +1,  0), # top    / верх   (+Y)
-  ( 0,  0, +1), # south  / юг     (+Z)
-  (-1,  0,  0), # west   / запад  (-X)
-  ( 0,  0, -1), # north  / север  (-Z)
-  (+1,  0,  0), # east   / восток (+X)
-  ( 0, -1,  0), # bottom / дно    (-Y)
-)
-ids_for_build = 0, 1, 2, 3, 4, 5, 6, 10, 11
-priorities = (
-  0, # (id:0) воздух
-  2, # (id:1) стена
-  2, # (id:2) дорожка
-  1, # (id:3) вход
-  1, # (id:4) выход
-  2, # (id:5) односторонник 1
-  2, # (id:6) односторонник 2
-  2, # (id:7) односторонник 3
-  2, # (id:8) туман
-  0, # (id:9) "что это?"
-  2, # (id:10) защищённая дорожка
-  2, # (id:11) телепортатор
-)
 
 def ClickProvider(data):
   def click():
@@ -84,7 +61,7 @@ def ClickProvider(data):
 
 
 
-ChunkSX = ChunkSY = ChunkSZ = 8
+ChunkSX = ChunkSY = ChunkSZ = 8 # TODO: глючит global, нужно повторить
 
 class Chunk:
   type = "Chunk"
@@ -169,10 +146,6 @@ class Chunk:
     my_x *= ChunkSX
     my_y *= ChunkSY
     my_z *= ChunkSZ
-
-    ChunkSXm1 = ChunkSX - 1
-    ChunkSYm1 = ChunkSY - 1
-    ChunkSZm1 = ChunkSZ - 1
 
     data = self.data
     for _x, _y, _z in Chunk.pos_cube:
@@ -637,7 +610,9 @@ class World:
     renderer.set_build_mode(4)
 
   def test_level(self):
-    print("under construction")
+    level = self.renderer.choosed_level
+    if level is None: return
+    test_level(level)
 
 
 
@@ -888,6 +863,11 @@ class myRenderer:
 
     self.marker = TranslateModel(ScaleModel(sphere.clone(), (0.2, 0.2, 0.2)), (0, 0, 0))
     self.marker_level = TranslateModel(marker_level, (-1.5, -0.5, -1))
+    self.arrowed_markers = m = ArrowedMarkers(self)
+
+    m.add_arrow((0, 2, 0), (6, 3, 3))
+    m.add_arrow((6, 3, 4), (0, 2, 1))
+    m.recalc(identity_mat)
 
 
     # настройка шейдерных программ
@@ -1076,6 +1056,8 @@ class myRenderer:
     if self.build_mode == 0:
       self.colorama.mode(0)
       self.colorama.draw(self.marker_level)
+
+    self.arrowed_markers.draw()
 
     # GUI
     for grid in self.grid_programs:

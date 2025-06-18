@@ -130,11 +130,12 @@ class ScaleModel:
 
 class RotateModel:
   type = "RotateModel"
-  def __init__(self, model, YPR):
+  def __init__(self, model, YPR, degrees = True):
     self.model = model
     self.YPR = YPR
     self.draw = model.draw
     self.delete = model.delete
+    self.degrees = degrees
 
   def recalc(self, mat):
     self.mat = mat
@@ -142,7 +143,7 @@ class RotateModel:
 
   def update(self):
     yaw, pitch, roll = self.YPR
-    q = Quaternion.fromYPR(yaw, pitch, roll)
+    q = Quaternion.fromYPR(yaw, pitch, roll, self.degrees)
     q2 = q.conjugated()
     sMat = q2.toMatrix()
     multiplyMM(sMat, 0, self.mat, 0, sMat, 0)
@@ -153,7 +154,7 @@ class RotateModel:
     except AttributeError: pass # если update2 вызван до recalc, то self.mat просто нет
 
   def clone(self):
-    clone = RotateModel(self.model.clone(), self.YPR)
+    clone = RotateModel(self.model.clone(), self.YPR, self.degrees)
     clone.location = self.location
     clone.mat = self.mat
     return clone
@@ -460,10 +461,14 @@ class OffRotationModel:
 class Quaternion:
   def __init__(self, x, y, z, w):
     self.xyzw = x, y, z, w
-  def fromYPR(yaw, pitch, roll):
-    yaw = yaw * pi180 / 2
-    pitch = pitch * pi180 / 2
-    roll = roll * pi180 / 2
+  def fromYPR(yaw, pitch, roll, degrees = True):
+    if degrees:
+      yaw *= pi180
+      pitch *= pi180
+      roll *= pi180
+    yaw /= 2
+    pitch /= 2
+    roll /= 2
     sYaw, cYaw = sin(yaw), cos(yaw)
     sPitch, cPitch = sin(pitch), cos(pitch)
     sRoll, cRoll = sin(roll), cos(roll)

@@ -67,6 +67,7 @@ sin = Math._mw_sin(DOUBLE)
 cos = Math._mw_cos(DOUBLE)
 asin = Math._mw_asin(DOUBLE)
 acos = Math._mw_acos(DOUBLE)
+atan = Math._mw_atan(DOUBLE)
 atan2 = Math._mw_atan2(DOUBLE, DOUBLE)
 floor = Math._mw_floor(DOUBLE)
 pi = Math._f_PI
