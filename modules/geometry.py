@@ -107,7 +107,7 @@ def figures(shaderProgram):
 
 class TubeBuilder:
   def __init__(self, rounded = False):
-    n = 64
+    n = 16#64
     cycle = 2 * pi
     sequence = tuple(cycle * (i / n) if i < n else 0 for i in range(n + 1))
     sin_seq = tuple(map(sin, sequence))
@@ -121,11 +121,7 @@ class TubeBuilder:
     self.n = n, n4, n5_16, n2, n_m1
     self.n_m1 = n_m1
     self.rounded = rounded
-
-    T = time()
-    self.make_arrow()
-    T2 = time()
-    print("make_arrow:", round(T2 - T, 5))
+    self.first_x = self.last_x = None
 
   def set_color(self, color1, color2, color3):
     color1 = tuple(i / 255 for i in color1)
@@ -135,7 +131,9 @@ class TubeBuilder:
     self.color3 = color3
     self.color1or2 = lambda: color1 if random_bool() else color2
 
-  def make_arrow(self):
+  def make_arrow(self, first_x, last_x):
+    if first_x == self.first_x and last_x == self.last_x: return
+
     n, n4, n5_16, n2, n_m1 = self.n
     sin_seq, cos_seq = self.seqs
     rounded = self.rounded
@@ -146,38 +144,45 @@ class TubeBuilder:
     R4 = 0.025
     R5 = 0.025
 
-    z = R
+    if R4 == R5: _last_x = first_x + R + R2 + R3 * (2 if rounded else 3) + 2 * R5
+    else: _last_x = first_x + R + R2 + (1 - cos_seq[n5_16]) * (R4 - R5) + (R3 + sin_seq[n5_16] * (R4 - R5)) * (2 if rounded else 3) + 2 * R5
+    add = last_x - _last_x
+
+    x = self.first_x = first_x
+    self.last_x = last_x
+    self.size_x = last_x - self.first_x
+
     circles = [
-      (sin_seq[i] * R, z + (1 - cos_seq[i]) * R)
+      (sin_seq[i] * R, x + (1 - cos_seq[i]) * R)
       for i in range(n4 + 1)]
     append = circles.append
-    z = circles[-1][1]
+    x += R
     if rounded:
       for i in range(1, 10):
-        append((R, z + i / 10 * 0.6))
-    z += 0.6
+        append((R, x + i / 10 * add))
+    x += add
+    self.circles = circles
+
+    circles2 = []
+    append = circles2.append
     for i in range(n4 + 1):
-      append((R + (1 - cos_seq[i]) * R2, z + sin_seq[i] * R2))
-    z = circles[-1][1]
+      append((R + (1 - cos_seq[i]) * R2, x + sin_seq[i] * R2))
+    x += R2
     for i in range(n5_16 + 1):
-      append((R3 + sin_seq[i] * R4, z + (1 - cos_seq[i]) * R4))
-    z = circles[-1][1]
-    z -= (1 - cos_seq[n5_16]) * R5
-    R_a = circles[-1][0]
+      append((R3 + sin_seq[i] * R4, x + (1 - cos_seq[i]) * R4))
+    x += (1 - cos_seq[n5_16]) * (R4 - R5)
+    R_a = R3 + sin_seq[n5_16] * R4
     R_b = sin_seq[n5_16] * R5
     add = (R_a - R_b) * (2 if rounded else 3)
     if rounded:
       for i in range(1, 10):
         i /= 10
-        append((R_a * (1 - i) + R_b * i, z + i * add))
-    z += add
+        append((R_a * (1 - i) + R_b * i, x + i * add))
+    x += add
     for i in range(n5_16, n2 + 1):
-      append((sin_seq[i] * R5, z + (1 - cos_seq[i]) * R5))
-    z = circles[-1][1]
-
-    # circles.extend((R, -z) for R, z in circles[::-1])
-    self.circles = circles
-    self.last_z = z
+      append((sin_seq[i] * R5, x + (1 - cos_seq[i]) * R5))
+    x += 2 * R5
+    self.circles2 = circles2
 
   def build(self):
     T = time()
@@ -187,7 +192,7 @@ class TubeBuilder:
 
     rounded = self.rounded
 
-    def halo(R, z):
+    def halo(R, x):
       dn = len(faces) // 9
       extend = faces.extend
       rand_i = self.rand_i
@@ -195,16 +200,16 @@ class TubeBuilder:
       cr, cg, cb = self.color3
       sin_seq, cos_seq = self.seqs
       if rounded:
-        last_z = self.last_z
-        step = pi / self.last_z / 2
+        last_x = self.last_x
+        step = pi / self.last_x / 2
         for i in range(self.n[0]):
           try: r, g, b = rand()
           except StopIteration:
             rand_i = self.rand_i = iter(self.rand)
             rand = rand_i.__next__
             r, g, b = rand()
-          rad = cos_seq[i] * R + last_z
-          phi = z * step
+          rad = cos_seq[i] * R + last_x
+          phi = x * step
           extend(rad * sin(phi), rad * cos(phi), sin_seq[i] * R, r, g, b, cr, cg, cb)
       else:
         for i in range(self.n[0]):
@@ -213,20 +218,20 @@ class TubeBuilder:
             rand_i = self.rand_i = iter(self.rand)
             rand = rand_i.__next__
             r, g, b = rand()
-          extend(z, cos_seq[i] * R, sin_seq[i] * R, r, g, b, cr, cg, cb)
+          extend(x, cos_seq[i] * R, sin_seq[i] * R, r, g, b, cr, cg, cb)
       return dn
 
-    def lid(z, swap): # крышка
+    def lid(x, swap): # крышка
       dn = last_dn
       dot = len(faces) // 9
 
       r, g, b = self.color1or2()
       cr, cg, cb = self.color3
       if self.rounded:
-        rad = self.last_z
-        phi = z * (pi / self.last_z / 2)
+        rad = self.last_x
+        phi = x * (pi / self.last_x / 2)
         faces.extend(rad * sin(phi), rad * cos(phi), 0, r, g, b, cr, cg, cb)
-      else: faces.extend(z, 0, 0, r, g, b, cr, cg, cb)
+      else: faces.extend(x, 0, 0, r, g, b, cr, cg, cb)
 
       extend = IBOdata.extend
       n_m1 = self.n_m1
@@ -239,10 +244,10 @@ class TubeBuilder:
           extend(dot, i, i + 1)
         extend(dot, dn + n_m1, dn)
 
-    def tube(R, z): # туба
+    def tube(R, x): # туба
       nonlocal last_dn
       dn = last_dn
-      dn2 = last_dn = halo(R, z)
+      dn2 = last_dn = halo(R, x)
 
       extend = IBOdata.extend
       n_m1 = self.n_m1
@@ -254,27 +259,39 @@ class TubeBuilder:
       extend(dn + n_m1, dn, dn2 + n_m1,   dn2 + n_m1, dn, dn2)
 
     circles = self.circles
-    a = circles[0]
-    b = circles[1]
-    last_dn = halo(*b)
-    lid(a[1], True)
-    for i in range(2, len(circles) - 1):
-      b = circles[i]
-      tube(*b)
-    a = circles[-1]
-    lid(a[1], False)
+    last_dn = halo(*circles[1])
+    lid(circles[0][1], True)
+    for i in range(2, len(circles)):
+      tube(*circles[i])
+
+    self.face_count = len(faces)
+
+    circles2 = self.circles2
+    for i in range(len(circles2) - 1):
+      tube(*circles2[i])
+    lid(circles2[-1][1], False)
 
     T2 = time()
     print("build:", round(T2 - T, 5))
     # print(len(faces) // 9, len(IBOdata) // 3) # количество вершин и полигонов
-    return faces, IBOdata
+    self.builded = faces, IBOdata
+
+  def extend_x(self, new_last_x):
+    faces, IBOdata = self.builded
+    delta_x = new_last_x - self.last_x
+    faces2 = list(faces)
+    for i in range(self.face_count, len(faces), 9):
+      faces2[i] += delta_x
+    return faces2, IBOdata
 
 tube_builder = TubeBuilder()
 tube_builder2 = TubeBuilder(True)
-def make_arrow(color1, color2, color3, rounded = False):
+def make_arrow(color1, color2, color3, rounded = False, first_x = 0.05, last_x = 1):
   tb = tube_builder2 if rounded else tube_builder
   tb.set_color(color1, color2, color3)
-  return tb.build()
+  tb.make_arrow(first_x, last_x)
+  tb.build()
+  return tb
 
 
 
@@ -338,9 +355,9 @@ class ArrowedStar:
 
     T = time()
     colorama = renderer.colorama
-    arrow_data_X = make_arrow((170, 0, 0), (255, 85, 85), colorama.next_cb(lambda: self.cb((1, 0, 0))))
-    arrow_data_Y = make_arrow((0, 170, 0), (85, 255, 85), colorama.next_cb(lambda: self.cb((0, 1, 0))))
-    arrow_data_Z = make_arrow((0, 0, 170), (85, 85, 255), colorama.next_cb(lambda: self.cb((0, 0, 1))))
+    arrow_data_X = make_arrow((170, 0, 0), (255, 85, 85), colorama.next_cb(lambda: self.cb((1, 0, 0)))).builded
+    arrow_data_Y = make_arrow((0, 69, 36), (28, 172, 120), colorama.next_cb(lambda: self.cb((0, 1, 0)))).builded
+    arrow_data_Z = make_arrow((0, 0, 170), (85, 85, 255), colorama.next_cb(lambda: self.cb((0, 0, 1)))).builded
     # print("•••", time() - T)
     # было:  0.00032 + 0.00725 + 0.28886 + 0.02229 = 0.31872 секунд (buildModel как всегда самый требовательный)
     # стало: 0.00042 + 0.01368 + 0.0     + 0.0     = 0.0141  секунд
@@ -447,9 +464,9 @@ class RotationStar:
 
     T = time()
     colorama = renderer.colorama
-    arrow_data_X = make_arrow((170, 0, 0), (255, 85, 85), colorama.next_cb(lambda: self.cb((1, 0, 0))), True)
-    arrow_data_Y = make_arrow((0, 170, 0), (85, 255, 85), colorama.next_cb(lambda: self.cb((0, 1, 0))), True)
-    arrow_data_Z = make_arrow((0, 0, 170), (85, 85, 255), colorama.next_cb(lambda: self.cb((0, 0, 1))), True)
+    arrow_data_X = make_arrow((170, 0, 0), (255, 85, 85), colorama.next_cb(lambda: self.cb((1, 0, 0))), True).builded
+    arrow_data_Y = make_arrow((0, 69, 36), (28, 172, 120), colorama.next_cb(lambda: self.cb((0, 1, 0))), True).builded
+    arrow_data_Z = make_arrow((0, 0, 170), (85, 85, 255), colorama.next_cb(lambda: self.cb((0, 0, 1))), True).builded
     # print("•••", time() - T)
     # было:  0.00032 + 0.00725 + 0.28886 + 0.02229 = 0.31872 секунд (buildModel как всегда самый требовательный)
     # стало: 0.00042 + 0.01368 + 0.0     + 0.0     = 0.0141  секунд
@@ -502,6 +519,51 @@ class RotationStar:
   def use(self):
     self.renderer.camMoveEvent = event = self.camMoveEvent
     event()
+
+
+
+class ArrowedMarkers:
+  def __init__(self, renderer):
+    self.renderer = renderer
+    colorama = renderer.colorama
+
+    tb = TubeBuilder()
+    tb.make_arrow(0, 1)
+    tb.set_color((144, 144, 255), (220, 208, 255), (0, 0, 0))
+    tb.build()
+
+    cache = {}
+    def get_model(L):
+      try: return cache[L].clone()
+      except KeyError: pass
+      result = cache[L] = await(renderer.view, lambda: Model(*(tb.builded if L == 1 else tb.extend_x(L)), colorama))
+      # print("L:", L)
+      return result
+    self.get_model = get_model
+
+    self.model = model = UnionModel([])
+    self.recalc = model.recalc
+    self.clear = model.clear
+
+  def add_arrow(self, pos, pos2):
+    x, y, z = pos
+    x2, y2, z2 = pos2
+    x2 -= x
+    y2 -= y
+    z2 -= z
+    L = lengthVec(x2, y2, z2)
+
+    arrow = self.get_model(L)
+    # arrow = TranslateModel(arrow, (-tb.first_x, 0, 0))
+    # arrow = ScaleModel(arrow, (L / tb.size_x, 1, 1))
+    arrow = RotateModel(arrow, (atan2(z2, x2), 0, -asin(y2 / L)), False)
+    arrow = TranslateModel(arrow, (x + 0.5, y + 0.5, z + 0.5))
+    self.model.add(arrow)
+
+  def draw(self):
+    colorama = self.renderer.colorama
+    colorama.mode(2)
+    colorama.draw(self.model)
 
 
 
@@ -620,12 +682,13 @@ def skew_symmetric_matrix(normal):
 
 def Rodrigues(normal, angle_delta):
   # Rodrigues' Rotation Formula: R = I + sin(theta) * K + (1 - cos(theta)) * K^2
+  I = identity_mat
   K = skew_symmetric_matrix(normal)
   K2 = FLOAT.new_array(16)
   multiplyMM(K2, 0, K, 0, K, 0)
   si = sin(angle_delta)
   co = 1 - cos(angle_delta)
-  return (identity_mat[i] + si * K[i] + co * K2[i] for i in range(16))._a_float
+  return (I[i] + si * K[i] + co * K2[i] for i in range(16))._a_float
 
 def inv_Rodrigues(matrix, normal):
   # Вычисление cos(theta)

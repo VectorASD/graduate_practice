@@ -353,6 +353,8 @@ AirChunk = Chunk(None, None)
 
 class Level:
   type = "Level"
+  hooked = None
+
   def __init__(self, path):
     self.chunks = {}
     self.mat = None
@@ -363,6 +365,8 @@ class Level:
     self.save_time = None
     self.matrix = FLOAT.new_array(16)
     setIdentityM(self.matrix, 0)
+
+    self.recalc_hook = None
 
     try: self.load()
     except OSError: self.default()
@@ -379,7 +383,8 @@ class Level:
       mat2 = self.mat2
       if mat2: chunk.recalc(mat2)
     chunk.setblock(x, y, z, id, upd_nb)
-    self.save_time = time() + 3
+    self.event()
+    self.set_hook(None)
 
   def getblock(self, x, y, z):
     chunk_x, x = divmod(x, ChunkSX)
@@ -406,15 +411,8 @@ class Level:
 
 
 
-  def recalc(self, mat):
-    self.mat = mat
-    self.update()
-
-  def update(self):
-    self.mat2 = mat2 = FLOAT.new_array(16)
-    multiplyMM(mat2, 0, self.mat, 0, self.matrix, 0)
-    for chunk in self.chunks.values():
-      chunk.recalc(mat2)
+  def event(self):
+    self.save_time = time() + 3
 
   def draw(self):
     save_time = self.save_time
@@ -497,6 +495,7 @@ class Level:
     else:
       renderer.choosed_level = self
       self.update_arrow()
+    renderer.apply_build_mode()
 
   def update_arrow(self):
     arrow = self.renderer.arrow
@@ -507,20 +506,48 @@ class Level:
     arrow.set_mat(self.matrix)
     arrow.use()
 
+
+
+  def update(self):
+    self.mat2 = mat2 = FLOAT.new_array(16)
+    multiplyMM(mat2, 0, self.mat, 0, self.matrix, 0)
+    for chunk in self.chunks.values():
+      chunk.recalc(mat2)
+
+    hook = self.recalc_hook
+    if hook is not None: hook(mat2)
+
+  def recalc(self, mat):
+    self.mat = mat
+    self.update()
+
+  def set_hook(self, hook, reject = None):
+    old = Level.hooked
+    if old is not None:
+      level, func = old
+      level.recalc_hook = None
+      if func is not None: func()
+
+    self.recalc_hook = hook
+    if hook is not None:
+      hook(self.mat2)
+      Level.hooked = self, reject
+    else: Level.hooked = None
+
   def move(self, x, y, z):
     mat = self.matrix
     translateM2(mat, 0, mat, 0, x, y, z)
     arrow = self.renderer.arrow
     if arrow is not None: arrow.set_mat(mat)
     self.update()
-    self.save_time = time() + 3
+    self.event()
 
   def rotate(self, rot_mat):
     mat = self.matrix
     multiplyMM(mat, 0, mat, 0, rot_mat, 0)
     self.renderer.arrow.set_mat(mat)
     self.update()
-    self.save_time = time() + 3
+    self.event()
 
 
 
@@ -610,8 +637,10 @@ class World:
     renderer.set_build_mode(4)
 
   def test_level(self):
-    level = self.renderer.choosed_level
+    renderer = self.renderer
+    level = renderer.choosed_level
     if level is None: return
+
     test_level(level)
 
 
@@ -863,11 +892,7 @@ class myRenderer:
 
     self.marker = TranslateModel(ScaleModel(sphere.clone(), (0.2, 0.2, 0.2)), (0, 0, 0))
     self.marker_level = TranslateModel(marker_level, (-1.5, -0.5, -1))
-    self.arrowed_markers = m = ArrowedMarkers(self)
-
-    m.add_arrow((0, 2, 0), (6, 3, 3))
-    m.add_arrow((6, 3, 4), (0, 2, 1))
-    m.recalc(identity_mat)
+    self.arrowed_markers = ArrowedMarkers(self)
 
 
     # настройка шейдерных программ
@@ -969,10 +994,10 @@ class myRenderer:
       grid.clear()
       n = 4 + len(ids_for_build) + 5
       func = lambda: n in self.eventN
-      match id:
-        case 0: grid.add(0, 8.75, 1.5, 10, n, func)
-        case 1..3: pass # sparse- to packed- switch
-        case 4: grid.add(2, 8.75, 4,   10, n, func)
+      if id == 0:
+        grid.add(0, 8.75, 1.5,  10, n,     func)
+      if level is not None:
+        grid.add(2, 8.75, 5.25, 10, n + 1, func)
     runOnGLThread(self.view, upd)
 
     if id == 0: self.camMoveEvent2()
@@ -1208,10 +1233,10 @@ class myRenderer:
       id = t - shift
       self.set_build_mode(id)
     elif t == n:
-      match self.build_mode:
-        case 0: world.create_level()
-        case 1..3: pass # sparse- to packed- switch
-        case 4: world.test_level()
+      if self.build_mode == 0:
+        world.create_level()
+    elif t == n + 1:
+      world.test_level()
     # print("🐾 click:", x, y, t)
 
   def eventHandler(self):

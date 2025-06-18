@@ -56,7 +56,7 @@ def can_move(level, graph, min_y):
   for pos in graph:
     graph_add = graph[pos].append
     x, y, z = pos
-    print(x, y, z)
+    # print(x, y, z)
     Y = divmod(y, ChunkSY)
     for dx, dz in ((-1, 0), (0, 1), (1, 0), (0, -1)):
       chunk_x, _x = divmod(dx + x, ChunkSX)
@@ -75,7 +75,7 @@ def can_move(level, graph, min_y):
           _x += chunk_x * ChunkSX
           _z += chunk_z * ChunkSZ
           pos = _x, _y + 1, _z
-          print("   ", dx, dz, "->", pos, pos in graph)
+          # print("   ", dx, dz, "->", pos, pos in graph)
           graph_add(pos)
           break
         elif not can_walk_2[id]: break
@@ -86,7 +86,20 @@ def can_move(level, graph, min_y):
           _y = ChunkSYm1
           data = get_chunk(chunk_x, chunk_y, chunk_z).data
 
+def print_graph(level, graph):
+  renderer = level.renderer
+  m = renderer.arrowed_markers
+  level.set_hook(m.recalc, m.clear)
+
+  def yeah():
+    add_arrow = m.add_arrow
+    for pos, arr in graph.items():
+      for pos2 in arr:
+        add_arrow(pos, pos2)
+  Thread(yeah).start()
+
 def test_level(level):
   graph, min_y = can_stand(level)
   can_move(level, graph, min_y)
-  print(graph)
+  # print(graph)
+  print_graph(level, graph)

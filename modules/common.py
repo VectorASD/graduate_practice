@@ -48,7 +48,9 @@ class MyLock:
     self.lock = obj._mw_lock()
     self.unlock = obj._mw_unlock()
   def __enter__(self): self.lock()
-  def __exit__(self, exc, val, trace): self.unlock()
+  def __exit__(self, exc, val, trace):
+    try: self.unlock()
+    except: pass
 
 def Counter():
   lock = MyLock()
