@@ -391,7 +391,7 @@ class ArrowedStar:
       cx, cy, cz = renderer.camera
       mat = scaled.mat
       L = lengthVec(cx - mat[12], cy - mat[13], cz - mat[14])
-      L /= 4
+      L /= 3
       self.set_scale((L, L, L))
     self.camMoveEvent = camMoveEvent
 
@@ -507,7 +507,7 @@ class RotationStar:
       cx, cy, cz = renderer.camera
       mat = scaled.mat
       L = lengthVec(cx - mat[12], cy - mat[13], cz - mat[14])
-      L /= 4
+      L /= 3
       self.set_scale((L, L, L))
     self.camMoveEvent = camMoveEvent
 
@@ -541,7 +541,7 @@ class ArrowedMarkers:
       return result
     self.get_model = get_model
 
-    self.model = model = UnionModel([])
+    self.model = model = SafeUnionModel([])
     self.recalc = model.recalc
     self.clear = model.clear
 

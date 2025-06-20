@@ -193,6 +193,35 @@ class UnionModel:
   type = "UnionModel"
   def __init__(self, models):
     self.models = models
+
+  def recalc(self, mat):
+    self.mat = mat
+    for model in self.models: model.recalc(mat)
+
+  def draw(self):
+    for model in self.models: model.draw()
+
+  def delete(self):
+    for model in self.models: model.delete()
+    self.models = ()
+
+  def clone(self):
+    models = tuple(model.clone() for model in self.models)
+    return UnionModel(models)
+
+  def clear(self):
+    self.models.clear()
+
+  def add(self, model):
+    self.models.append(model)
+    try: mat = self.mat
+    except AttributeError: return
+    model.recalc(mat)
+
+class SafeUnionModel:
+  type = "UnionModel"
+  def __init__(self, models):
+    self.models = models
     self.lock = MyLock()
 
   def recalc(self, mat):
