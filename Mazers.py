@@ -95,7 +95,8 @@ class Chunk:
     	 [0] * ChunkSX
       for y in range(ChunkSY))
       for z in range(ChunkSZ))
-    self.model = None
+    self.models = None, None
+    self.air = False # утилизирует чанк в случае True
     self.dirty = False
     self.mat = None
     self.my_pos = my_pos
@@ -121,8 +122,10 @@ class Chunk:
 
     T = time()
 
-    faces = []
-    extend = faces.extend
+    faces1 = []
+    extend1 = faces1.extend
+    faces2 = []
+    extend2 = faces2.extend
 
     renderer = self.level.renderer
     next_color = renderer.colorama.next
@@ -154,6 +157,13 @@ class Chunk:
       id = row[_x]
       if not id: continue
 
+      my_prior = priors[id]
+
+      match my_prior:
+        case _: continue
+        case 1: extend = extend2
+        case 2: extend = extend1
+
       x = _x + my_x
       y = _y + my_y
       z = _z + my_z
@@ -163,7 +173,6 @@ class Chunk:
       z2 = z + 1
 
       u1, u2, v1, v2 = id2uv[id]
-      my_prior = priors[id]
 
       # Мой extend теперь позволяет передавать несколько элементов без tuple!
       # Добавил в свой компилятор __iget_or_default.
@@ -241,16 +250,24 @@ class Chunk:
 
     T2 = time()
 
-    if not faces:
-      self.model = None
-      return # Чисто-воздушный чанк...
+    models = []; app = models.append
+    for faces in (faces1, faces2):
+      if not faces:
+        app(None)
+        continue # Чисто-воздушный чанк...
 
-    # VBOdata, IBOdata = buildModel(faces)
-    VBOdata = faces
-    count = len(faces) // (4 * 8)
-    IBOdata = Chunk.IBOdata[:count * 6]
+      # VBOdata, IBOdata = buildModel(faces)
+      VBOdata = faces
+      count = len(faces) // (4 * 8)
+      IBOdata = Chunk.IBOdata[:count * 6]
 
-    self.model = Model(VBOdata, IBOdata, renderer.colorama, False)
+      model = Model(VBOdata, IBOdata, renderer.colorama, False)
+      mat = self.mat
+      if mat: model.recalc(mat)
+      app(model)
+
+    self.models = models
+    self.air = models[0] is None and models[1] is None
 
     T3 = time()
     # print("C:", self.my_pos, "T:", T2 - T, T3 - T2, count, "крышек") # крышка - 2 полигона, выстроенных квадратом
@@ -260,9 +277,6 @@ class Chunk:
 
     # итог: 2 чанка в секунду поднято до РОВНО 40 чанков в секунду
     # т.е. даже редактирование углового блока чанка, что приведёт к обновлению сразу 4-ёх чанков (больше 4-ёх за 1 блок невозможно), на это уйдёт, в среднем, всего 0.1 секунды!
-
-    mat = self.mat
-    if mat: self.model.recalc(mat)
 
 
 
@@ -295,26 +309,36 @@ class Chunk:
 
 
   def recalc(self, mat):
-    model = self.model
-    if model: model.recalc(mat)
     self.mat = mat
+    models = self.models
+    model = models[0]
+    if model: model.recalc(mat)
+    model = models[1]
+    if model: model.recalc(mat)
 
   def draw(self):
     if self.dirty:
       self.build()
       self.dirty = False
-    model = self.model
+      if self.air:
+        self.delete()
+        return
+
+    model = self.models[0]
     if model: model.draw()
-    else: self.delete()
+
+  def draw2(self):
+    model = self.models[1]
+    if model: model.draw()
 
   def restart(self):
-    self.dirty = self.model is not None
-    self.model = None
+    self.dirty = True
+    self.models = None, None
     self.colors.clear()
 
   def remove(self):
-    model = self.model
-    if model: model.delete(False)
+    for model in self.models:
+      if model: model.delete(False)
     colors = self.colors
     if colors:
       self.level.renderer.colorama.clear(colors)
@@ -420,8 +444,10 @@ class Level:
       self.save_time = None
       self.save()
 
-    for chunk in self.chunks.values():
-      chunk.draw()
+    for draw in self.draws: draw()
+
+  def draw2(self):
+    for draw in self.draws2: draw()
 
   def restart(self):
     for chunk in self.chunks.values():
@@ -432,6 +458,7 @@ class Level:
       for x in range(3):
         self.setblock(x, 0, z, 8 if x == 1 and z == 1 else 1)
     self.save_time = None
+    self.upd_bounding()
 
   def delete(self):
     for chunk in self.chunks.values():
@@ -471,13 +498,16 @@ class Level:
       return
     with open(path.name(), "rb") as file:
       self.unpack(file)
+    print("LOADED:", path)
 
 
 
   def upd_bounding(self):
+    chunks = self.chunks
+
     min_x = min_y = min_z = float("inf")
     max_x = max_y = max_z = -min_z
-    for (x, y, z), chunk in self.chunks.items():
+    for (x, y, z), chunk in chunks.items():
       min_x = min(min_x, x); max_x = max(max_x, x)
       min_y = min(min_y, y); max_y = max(max_y, y)
       min_z = min(min_z, z); max_z = max(max_z, z)
@@ -487,6 +517,17 @@ class Level:
     renderer = self.renderer
     if renderer and self is renderer.choosed_level:
       self.update_arrow()
+
+    draws = [];   app_1 = draws.append
+    draws2 = [];  app_2 = draws2.append
+    recalcs = []; app_3 = recalcs.append
+    for chunk in chunks.values():
+      app_1(chunk.draw)
+      app_2(chunk.draw2)
+      app_3(chunk.recalc)
+    self.draws   = tuple(draws)
+    self.draws2  = tuple(draws2)
+    self.recalcs = tuple(recalcs)
 
   def choose(self):
     renderer = self.renderer
@@ -511,8 +552,8 @@ class Level:
   def update(self):
     self.mat2 = mat2 = FLOAT.new_array(16)
     multiplyMM(mat2, 0, self.mat, 0, self.matrix, 0)
-    for chunk in self.chunks.values():
-      chunk.recalc(mat2)
+    for recalc in self.recalcs:
+      recalc(mat2)
 
     hook = self.recalc_hook
     if hook is not None: hook(mat2)
@@ -596,6 +637,7 @@ class World:
 
   def update(self):
     self.draws    = tuple(level.draw    for level in self.levels)
+    self.draws2   = tuple(level.draw2   for level in self.levels)
     self.recalcs  = tuple(level.recalc  for level in self.levels)
     self.restarts = tuple(level.restart for level in self.levels)
 
@@ -606,7 +648,14 @@ class World:
   def draw(self, mode):
     renderer = self.renderer
     glBindTexture(GL_TEXTURE_2D, renderer.atlas)
+
+    glDisable(GL_BLEND)
     renderer.colorama.fast_draw(self.draws, mode)
+    glEnable(GL_BLEND)
+
+    glDepthMask(False)
+    for draw in self.draws2: draw()
+    glDepthMask(True)
 
   def restart(self):
     for restart in self.restarts: restart()
