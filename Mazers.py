@@ -46,12 +46,15 @@ def ClickProvider(data):
     renderer = level.renderer
     mode = renderer.build_mode
 
-    if mode != 4:
-      if mode in (1, 2, 3): level.choose()
+    if level is not renderer.choosed_level or mode != 4:
+      level.choose()
       return
+
     # print(x, y, z, face)
     dx, dy, dz = face2delta[face]
     id = renderer.selected_tile
+    if id is None: return
+
     if id:
       x += dx
       y += dy
@@ -599,6 +602,7 @@ class World:
     self.renderer = None
     self.mat = None
     self.n = 0
+    self.last_tested_level = None
 
     self.path = path = File(dir_path)
     assert path.exists(), "Не существует данного пути: %s" % path
@@ -688,9 +692,15 @@ class World:
   def test_level(self):
     renderer = self.renderer
     level = renderer.choosed_level
+    if level is None or level is self.last_tested_level:
+      level2 = Level.hooked
+      if level2 is not None:
+        level2[0].set_hook(None)
+        return
     if level is None: return
 
     test_level(level)
+    self.last_tested_level = level
 
 
 
@@ -781,9 +791,9 @@ class myRenderer:
     self.camMoveEvent = lambda: None
 
     # Editor
-    self.selected_tile = 1
+    self.selected_tile = None
     self.choosed_level = None
-    self.build_mode = 1
+    self.build_mode = -1
 
   def fps(self):
     T = time()
@@ -967,11 +977,11 @@ class myRenderer:
     gridProgram3.setDirection(1)
 
     shift = 4 + len(ids_for_build)
-    for i in range(5):
-      def add(id):
-        func = lambda: self.build_mode != id
-        gridProgram3.add((id + 4) % 8, 3.75 + 1.25 * id, 0.25, 10, id + shift, func, False, True)
-      add(i)
+    def add(id):
+      func = lambda: self.build_mode != id
+      gridProgram3.add((id + 4) % 8, 3.75 + 1.25 * id, 0.25, 10, id + shift, func, False, True)
+
+    for i in range(5): add(i)
 
     gridProgram4.setUp(0.25)
     gridProgram4.setDirection(1)
@@ -1023,6 +1033,7 @@ class myRenderer:
     self.camMoveEvent2()
 
   def set_build_mode(self, id):
+    if id == self.build_mode: id = -1
     self.build_mode = id
     self.apply_build_mode()
     global dbg_text; dbg_text = None
@@ -1277,6 +1288,7 @@ class myRenderer:
       self.currentSkybox = self.skyboxes[N]
     elif t in range(4, shift):
       id = ids_for_build[t - 4]
+      if id is self.selected_tile: id = None
       self.selected_tile = id
     elif t in range(shift, n):
       id = t - shift
